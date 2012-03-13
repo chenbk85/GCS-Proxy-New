@@ -1537,14 +1537,15 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 					con->server->dst->name->str, g_strerror(errno));
 
 			/* mark the backend as being DOWN and retry with a different one */
-			st->backend->state = BACKEND_STATE_DOWN;
+			//st->backend->state = BACKEND_STATE_DOWN;
 
-// 			g_mutex_lock(con->srv->priv->backends->backends_mutex);			//edit by vinchen/CFR, if not is down ,set to unknown
-// 			if (st->backend->state != BACKEND_STATE_DOWN){
-// 				//g_assert(con->srv->priv->backends->backends->len == 1);		//如果这样修改后，多后端就没意义了！先断言(makebe question)			
-// 				st->backend->state = BACKEND_STATE_UNKNOWN;
-// 			}
-// 			g_mutex_unlock(con->srv->priv->backends->backends_mutex);
+ 			g_mutex_lock(con->srv->priv->backends->backends_mutex);			//edit by vinchen/CFR, if not is down ,set to unknown
+ 			if (st->backend->state != BACKEND_STATE_DOWN){
+                //TODO: vinchen
+ 				g_assert(con->srv->priv->backends->backends->len == 1);		//如果这样修改后，多后端就没意义了！先断言(makebe question)			
+ 				st->backend->state = BACKEND_STATE_UNKNOWN;
+ 			}
+ 			g_mutex_unlock(con->srv->priv->backends->backends_mutex);
 
 			chassis_gtime_testset_now(&st->backend->state_since, NULL);
 			network_socket_free(con->server);
