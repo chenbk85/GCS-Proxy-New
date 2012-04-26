@@ -613,6 +613,48 @@ static network_mysqld_lua_stmt_ret proxy_lua_read_auth(network_mysqld_con *con) 
 	return ret;
 }
 
+gint
+proxy_check_user_ip(
+    network_mysqld_con              *con
+)
+{
+    gchar           user_ip_buffer[1000];
+    network_address *addr;
+    chassis         *chas;        
+    network_mysqld_auth_response    *auth;
+    network_socket                  *client_sock;
+    
+    chas = con->srv;
+    client_sock = con->client;
+    addr = client_sock->src;
+    auth = client_sock->response;
+
+    switch (addr->addr.common.sa_family) {
+    case AF_INET:
+        sprintf(user_ip_buffer, "%s@%s", auth->username->str, inet_ntoa(addr->addr.ipv4.sin_addr));
+        break;
+#ifdef HAVE_SYS_UN_H
+    case AF_UNIX:
+        g_assert(0);
+        //g_string_assign(addr->name, addr->addr.un.sun_path);
+        break;
+#endif
+    default:
+        g_assert(0);
+        break;
+    }
+
+    if (g_set_contains(chas->user_ip_set, user_ip_buffer))
+        return 0;
+
+    sprintf(user_ip_buffer, "%s@%s", auth->username->str, "%");
+
+    if (g_set_contains(chas->user_ip_set, user_ip_buffer))
+        return 0;
+
+    return -1;
+}
+
 NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_auth) {
 	/* read auth from client */
 	network_packet packet;
@@ -652,6 +694,34 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_auth) {
  	con->client->response = auth;
 
 	g_string_assign_len(con->client->default_db, S(auth->database));
+
+    if (proxy_check_user_ip(con))
+    {
+        gchar       buf[1000];
+        //is not a valid user
+        switch (con->client->src->addr.common.sa_family) 
+        {
+        case AF_INET:
+            sprintf(buf, "Access denied for user '%s'@'%s'", auth->username->str, inet_ntoa(con->client->src->addr.ipv4.sin_addr));
+            break;
+#ifdef HAVE_SYS_UN_H
+        case AF_UNIX:
+            g_assert(0);
+            //g_string_assign(addr->name, addr->addr.un.sun_path);
+            break;
+#endif
+        default:
+            g_assert(0);
+            break;
+        }
+
+        g_debug("%s: %s", G_STRLOC, buf);
+
+        network_mysqld_con_send_error_full(con->client, buf, strlen(buf), 1045, "28000");
+        network_mysqld_auth_response_free(auth);
+        con->client->response = NULL;
+        return NETWORK_SOCKET_ERROR;
+    }
 
 	/**
 	 * looks like we finished parsing, call the lua function

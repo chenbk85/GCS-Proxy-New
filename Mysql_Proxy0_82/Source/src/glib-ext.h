@@ -58,4 +58,49 @@ g_ptr_array_free_all(
 	g_ptr_array_element_free_func_t		free_func
 );
 
+//#define GSetTable GHashTable
+
+typedef GHashTable GSet;
+
+CHASSIS_API
+GSet*
+g_set_new (
+    GHashFunc      hash_func,
+    GEqualFunc     equal_func,
+    GDestroyNotify destroy
+);
+
+CHASSIS_API
+void
+g_set_destroy(
+    GSet*       set              
+);
+
+CHASSIS_API
+void
+g_set_insert (
+    GSet        *set,
+    gpointer    element
+);
+
+CHASSIS_API
+gboolean
+g_set_contains (
+    GSet        *set,
+    gpointer    element
+);
+
+CHASSIS_API
+gboolean
+g_set_remove (
+    GSet        *set,
+    gpointer    element
+);
+
+CHASSIS_API
+void
+g_set_remove_all(
+    GSet        *set                 
+);
+
 #endif

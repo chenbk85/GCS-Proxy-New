@@ -233,6 +233,13 @@ void chassis_free(chassis *chas) {
 	chassis_shutdown_hooks_free(chas->shutdown_hooks);
 
 	//add by vinchen/CFR
+    if (chas->set_mutex) {
+        g_mutex_free(chas->set_mutex);
+    }
+    if (chas->user_ip_set){
+        g_set_destroy(chas->user_ip_set);
+    }
+ 
 	if (chas->base_dir_org)
 		g_free(chas->base_dir_org);
 	if (chas->lua_cpath_org)

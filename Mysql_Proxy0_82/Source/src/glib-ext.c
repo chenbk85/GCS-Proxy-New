@@ -263,3 +263,57 @@ g_ptr_array_free_all(
 	
 	g_ptr_array_free(array, TRUE);
 }
+
+GSet*
+g_set_new (
+    GHashFunc      hash_func,
+    GEqualFunc     equal_func,
+    GDestroyNotify destroy
+)
+{
+    return g_hash_table_new_full (hash_func, equal_func, destroy, NULL);
+}
+
+void
+g_set_insert (
+    GSet        *set,
+    gpointer    element
+)
+{
+    g_hash_table_insert (set, element, element);
+}
+
+gboolean
+g_set_contains (
+    GSet        *set,
+    gpointer    element
+)
+{
+    return g_hash_table_lookup_extended (set, element, NULL, NULL);
+}
+
+gboolean
+g_set_remove (
+    GSet        *set,
+    gpointer    element
+)
+{
+    return g_hash_table_remove (set, element);
+}
+
+void
+g_set_remove_all(
+    GSet        *set                 
+)
+{
+    g_hash_table_remove_all(set);
+}
+
+void
+g_set_destroy(
+    GSet*       set              
+)
+{
+    g_hash_table_destroy(set);
+}
+

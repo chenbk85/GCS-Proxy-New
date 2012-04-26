@@ -105,6 +105,7 @@ struct chassis_plugin_config {
 
 	gchar *admin_username;            /**< login username */
 	gchar *admin_password;            /**< login password */
+    gchar *users_file;                /**< white list file */
 
 	network_mysqld_con *listen_con;
 };
@@ -328,6 +329,8 @@ gchar*		ini_str_admin =
     #*Authentication password for admin module\n\
 %sadmin-lua-script=%s\n\
     #*Script to execute by the admin module\n\
+%sadmin-users-file=%s\n\
+    #*White list file of user@ip\n\
 \n";
 
 // gchar*		ini_str_proxy1 = 
@@ -387,11 +390,15 @@ gchar*		ini_str_app2 =
 %suser=%s\n\
     #The user to use when running mysql-proxy\n";
 
-#define EC_ADMIN_RELOAD_SUCCESS	0
-#define EC_ADMIN_RELOAD_FAIL	1
-#define EC_ADMIN_RELOAD_NO_CONS_FILE 2
-#define EC_ADMIN_RELOAD_WIRTE_FILE_FAIL	3
-#define EC_ADMIN_RELOAD_UNKNOWN	4
+#define EC_ADMIN_SUCCESS	0
+#define EC_ADMIN_UNKNOWN    1	
+#define EC_ADMIN_REFRESH_BACKENDS_FAIL              2	
+#define EC_ADMIN_REFRESH_BACKENDS_NO_CONS_FILE      3   
+#define EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL   4	
+#define EC_ADMIN_REFRESH_USERS_FAIL                 5	
+#define EC_ADMIN_REFRESH_USERS_NO_CONS_FILE         6   
+#define EC_ADMIN_REFRESH_USERS_WIRTE_FILE_FAIL      7	
+#define EC_ADMIN_FAIL       8	
 
 void
 network_mysqld_admin_plugin_get_ini_str(
@@ -405,7 +412,8 @@ network_mysqld_admin_plugin_get_ini_str(
 		config->address ? "" : "#",         config->address ? config->address : "0.0.0.0:4041",
 		config->admin_username ? "" : "#",  config->admin_username ? config->admin_username : "proxy",
 		config->admin_password ? "" : "#",  config->admin_password ? config->admin_password : "proxy",
-		config->lua_script ? "" : "#",      config->lua_script ? config->lua_script : "admin.lua");
+		config->lua_script ? "" : "#",      config->lua_script ? config->lua_script : "admin.lua",
+		config->users_file ? "" : "#", config->users_file ? config->users_file: "proxy-user.cnf");
 }
 
 
@@ -431,7 +439,7 @@ admin_configure_flush_to_file(
 	int					ret;
 
 	if (!srv->default_file)
-		return EC_ADMIN_RELOAD_NO_CONS_FILE;
+		return EC_ADMIN_REFRESH_BACKENDS_NO_CONS_FILE;
 
 	new_str = g_string_new_len(NULL, 100000);
 
@@ -573,19 +581,139 @@ admin_configure_flush_to_file(
 
 		g_critical("%s: Can't open ini file %s",
 			G_STRLOC, srv->default_file);
-		return EC_ADMIN_RELOAD_WIRTE_FILE_FAIL;
+		return EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL;
 	}
 
 	if (fprintf(ini_file, new_str->str) < 0)
-		ret = EC_ADMIN_RELOAD_WIRTE_FILE_FAIL;
+		ret = EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL;
 	else
-		ret = EC_ADMIN_RELOAD_SUCCESS;
+		ret = EC_ADMIN_SUCCESS;
+
+    fflush(ini_file);
 
 	fclose(ini_file);
 
 	g_string_free(new_str, TRUE);
 
 	return ret;
+}
+
+int
+admin_read_users_file(
+    chassis               *chas,
+    chassis_plugin_config *config
+)
+{
+    FILE*       f;
+    gchar       buf[1000];
+
+    g_assert(config->users_file);
+    g_assert(chas->user_ip_set == NULL);
+
+    chas->user_ip_set = g_set_new(g_str_hash, g_str_equal, g_free);
+    chas->set_mutex   = g_mutex_new();
+
+    f = fopen(config->users_file, "r");
+    if (f == NULL)
+    {
+        g_error("%s: Could not open users file: %s", G_STRLOC, config->users_file);
+        return -1;      
+    }
+
+    g_mutex_lock(chas->set_mutex);
+    while (fgets(buf, 1000, f))
+    {
+        guint       len = strlen(buf);
+        if (buf[len - 1] == '\n')
+            buf[len - 1] = '\0';
+
+        g_set_insert(chas->user_ip_set, g_strdup(buf));
+    }
+    g_mutex_unlock(chas->set_mutex);
+    
+    fclose(f);
+
+    return 0;
+}
+
+struct admin_hash_file_struct 
+{
+    FILE*   open_file;
+    gint    error_no;
+};
+
+typedef struct admin_hash_file_struct admin_hash_file_t;
+
+
+void
+admin_write_users_file_func(
+    gpointer                key,
+    gpointer                key2,
+    admin_hash_file_t*      hash_file
+)
+{
+    if (hash_file->error_no < 0)
+        return;
+    
+    if (fprintf(hash_file->open_file, "%s\n", key) < 0)
+        hash_file->error_no = -1;
+}
+
+int
+admin_write_users_file(
+    chassis               *chas
+)
+{
+    FILE*       f;
+    guint       i;
+    admin_hash_file_t   hash_file;
+    gint        ret = EC_ADMIN_SUCCESS;
+    
+    chassis_plugin_config *config = NULL;
+    
+    for (i = 0; i < chas->modules->len; ++i)
+    {
+        chassis_plugin*     plugin;
+
+        plugin = g_ptr_array_index(chas->modules, i);
+
+        if (strcmp(plugin->name, "admin") == 0)
+        {
+            config = plugin->config;
+            break;
+        }
+    }
+    
+    g_assert(config != NULL);
+    
+    f = fopen(config->users_file, "w+");
+    if (f == NULL)
+    {
+        g_critical("%s: Admin refresh user, could not open users file: %s\n", G_STRLOC, config->users_file);
+        return EC_ADMIN_REFRESH_USERS_NO_CONS_FILE;
+    }
+
+    hash_file.open_file = f;
+    hash_file.error_no = 0;
+
+    //已保护
+    //g_mutex_lock(chas->set_mutex);
+
+    g_hash_table_foreach(chas->user_ip_set, admin_write_users_file_func, &hash_file);
+
+    if (hash_file.error_no < 0)
+    {
+        g_critical("%s: Admin refresh user, write file: %s error\n", G_STRLOC, config->users_file);
+        ret = EC_ADMIN_REFRESH_USERS_WIRTE_FILE_FAIL;
+    }
+
+    //g_mutex_unlock(chas->set_mutex);
+
+    fflush(f);
+
+    fclose(f);
+
+    return ret;
 }
 
 
@@ -682,7 +810,7 @@ admin_network_addr_free(
 
 static
 gint
-admin_reload_backends(
+admin_refresh_backends(
 	network_mysqld_con*			con,
 	GPtrArray*					backend_addr_str_array,
 	gint						fail_flag
@@ -697,7 +825,7 @@ admin_reload_backends(
 	//gchar						ip_address[MAX_IP_PORT_STRING_LEN + 1];
 	admin_network_addr_t*		addr;	
 	GPtrArray*					addr_array;
-	gint						ret = EC_ADMIN_RELOAD_SUCCESS;
+	gint						ret = EC_ADMIN_SUCCESS;
 	gboolean					all_same_flag = 1;
 	guint						server_cnt = 0;
 	guint						client_cnt = 0;
@@ -710,21 +838,21 @@ admin_reload_backends(
 	if (fail_flag == 1000)
 	{
 		admin_print_all_backend_cons(con->srv);
-		return EC_ADMIN_RELOAD_SUCCESS;
+		return EC_ADMIN_SUCCESS;
 	}
 
 	if (backend_addr_str_array->len != backends->backends->len)
 	{
 		g_critical("%s: Number of refresh backends num is not matched, new backends :%d, orignal backends : %d",
 					G_STRLOC, backend_addr_str_array->len , backends->backends->len);
-		return EC_ADMIN_RELOAD_FAIL;
+		return EC_ADMIN_REFRESH_BACKENDS_FAIL;
 	}
 
 	if (fail_flag != 0 && fail_flag != 1)
 	{
 		g_critical("%s: Fail flag of refresh backends must be 0 or 1, but the flag is %d",
 					G_STRLOC, fail_flag);
-		return EC_ADMIN_RELOAD_FAIL;
+		return EC_ADMIN_REFRESH_BACKENDS_FAIL;
 	}
 	
 	addr_array	= g_ptr_array_new();
@@ -769,13 +897,13 @@ admin_reload_backends(
 			{
 				g_critical("%s: Reload IP-address has to be in the form [<ip>][:<port>], is '%s'. No port number",
 					G_STRLOC, new_backend_addr);
-				ret = EC_ADMIN_RELOAD_FAIL;
+				ret = EC_ADMIN_REFRESH_BACKENDS_FAIL;
 			} 
 			else if (*port_err != '\0') 
 			{
 				g_critical("%s: Reload IP-address has to be in the form [<ip>][:<port>], is '%s'. Failed to parse the port at '%s'",
 					G_STRLOC, new_backend_addr, port_err);
-				ret = EC_ADMIN_RELOAD_FAIL;
+				ret = EC_ADMIN_REFRESH_BACKENDS_FAIL;
 			} 
 			else 
 			{
@@ -784,7 +912,7 @@ admin_reload_backends(
 				{
 					g_critical("%s: Reload IP-address %s : %d error",
 						G_STRLOC, addr->ip_address, addr->port);
-					ret = EC_ADMIN_RELOAD_FAIL;
+					ret = EC_ADMIN_REFRESH_BACKENDS_FAIL;
 				}
 				//ping the ip address and port;
 				//ret = network_address_set_address_ip(addr, ip_address, port);
@@ -792,9 +920,9 @@ admin_reload_backends(
 			}
 		}
 		else
-			ret = EC_ADMIN_RELOAD_FAIL;
+			ret = EC_ADMIN_REFRESH_BACKENDS_FAIL;
 		
-		if (EC_ADMIN_RELOAD_FAIL == ret)
+		if (EC_ADMIN_REFRESH_BACKENDS_FAIL == ret)
 		{
 			g_ptr_array_free_all(addr_array, admin_network_addr_free);
 			return ret;
@@ -805,7 +933,7 @@ admin_reload_backends(
 	if (all_same_flag)
 	{
 		g_ptr_array_free_all(addr_array, admin_network_addr_free);
-		return EC_ADMIN_RELOAD_SUCCESS;
+		return EC_ADMIN_SUCCESS;
 	}
 
 	/* 2. 置当前所有backends为down */
@@ -831,17 +959,6 @@ admin_reload_backends(
 		addr = g_ptr_array_index(addr_array, i);
 
 		network_address_copy(backend->addr, addr->addr);
-
-// 		backend->addr->name->len = 0; /* network refresh name */
-// 
-// 		if (network_address_set_address_ip(backend->addr, addr->ip_address, addr->port))
-// 		{
-// 			g_critical("%s: Reload IP-address %s : %d error"
-// 				G_STRLOC, addr->ip_address, addr->port);
-// 			ret = EC_ADMIN_RELOAD_FAIL;
-// 
-// 			break;
-// 		}
 	}
 	g_mutex_unlock(backends->backends_mutex);
 
@@ -926,7 +1043,7 @@ admin_reload_backends(
 				G_STRLOC, srv->priv->cons->len, server_cnt, client_cnt);
 	g_mutex_unlock(srv->priv->cons_mutex);	
 
-	if (ret != EC_ADMIN_RELOAD_SUCCESS)
+	if (ret != EC_ADMIN_SUCCESS)
 		goto destroy_end;
 
     /* 5. 再把后端状态置为unknown，接收新连接 */
@@ -949,9 +1066,136 @@ destroy_end:
 	return ret;
 }
 
-static 
+//
+
+#define ADMIN_REFRESH_TYPE_BACKENDS 0
+#define ADMIN_REFRESH_TYPE_USERS    1
+
+/*
+    根据存储函数的字符参数以及逗号分隔符获得字符数组，并返回读取位置
+*/
+static
+gchar*
+admin_get_str_array_from_proc_strarg(
+    gchar*          p,
+    gchar*          p_end,
+    GPtrArray**     p_buffer_arrary
+)
+{
+    gchar*	cmd_str = NULL;
+    gchar	buffer[MAX_IP_PORT_STRING_LEN + 1];
+    int		index = 0;
+    GPtrArray*		buffer_array = *p_buffer_arrary;
+
+    if (*p != '\'')
+    {
+        return NULL;
+    }
+
+    p++;
+
+    /* 处理第一个参数，根据逗号分隔，得到字符数组 */
+    while(p && 
+        *p != '\'' && 
+        p != p_end)
+    {
+        if (MAX_IP_PORT_STRING_LEN == index)
+        {
+            return NULL;
+        }
+        else if (*p == ',')
+        {
+            if (index > 0)
+            {
+                buffer[index] = '\0';
+                g_ptr_array_add(buffer_array, g_strdup(g_strstrip(buffer)));
+            }
+            index = 0;
+            p++;
+
+            continue;
+        }
+
+        buffer[index++] = *(p++);
+    }
+
+    if (index > 0)
+    {
+        buffer[index] = '\0';
+        g_ptr_array_add(buffer_array, g_strdup(g_strstrip(buffer)));
+    }
+
+    if (p == p_end || *p != '\'')
+    {
+        return NULL;
+    }
+
+    p++;
+
+    //skip the space, \t 
+    while (p != p_end && g_ascii_isspace(*p))
+        p++;
+
+    return p;
+}
+
+static
 gint
-admin_reload_backends_if_necessary(
+admin_refresh_users(
+    network_mysqld_con*         con,
+    GPtrArray*                  user_array,
+    gchar                       action_flag
+)
+{
+    chassis*        chas;
+    gint            ret = 0;
+    guint           i;
+
+    chas = con->srv;
+
+    g_mutex_lock(chas->set_mutex);
+
+    if (action_flag == '+')
+    {
+        for (i = 0; i < user_array->len; ++i)
+        {
+            g_set_insert(chas->user_ip_set, g_strdup(g_ptr_array_index(user_array, i)));
+        }
+    }
+    else if (action_flag == '-')
+    {
+        for (i = 0; i < user_array->len; ++i)
+        {
+            g_set_remove(chas->user_ip_set, g_ptr_array_index(user_array, i));
+        }
+    }
+    else if (action_flag == '=')
+    {
+        g_set_remove_all(chas->user_ip_set);
+
+        for (i = 0; i < user_array->len; ++i)
+        {
+            g_set_insert(chas->user_ip_set, g_strdup(g_ptr_array_index(user_array, i)));
+        }
+    }
+    else
+    {
+        g_mutex_unlock(chas->set_mutex);
+        ret = EC_ADMIN_REFRESH_USERS_FAIL;
+
+        return ret;
+    }
+    
+    ret = admin_write_users_file(chas);
+
+    g_mutex_unlock(chas->set_mutex);
+
+    return ret;
+}
+
+static  
+gint
+admin_refresh_if_necessary(
 	network_mysqld_con*			con
 )
 {
@@ -961,7 +1205,7 @@ admin_reload_backends_if_necessary(
 	GString *packet = chunk->data;
 
 	if (packet->len < NET_HEADER_SIZE) 
-		return EC_ADMIN_RELOAD_UNKNOWN; /* packet too short */
+		return EC_ADMIN_UNKNOWN; /* packet too short */
 
 	command = packet->str[NET_HEADER_SIZE + 0];
 
@@ -983,135 +1227,261 @@ admin_reload_backends_if_necessary(
 
 	/* not a query */
 	if (COM_QUERY != command) 
-		return EC_ADMIN_RELOAD_UNKNOWN;
+		return EC_ADMIN_UNKNOWN;
 
 	//刷新配置
-	if (packet->len - NET_HEADER_SIZE - 1 >= sizeof("refresh_backends('1.1.1.1:1')") - 1 &&
-		    0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("refresh_backends('")))
+	if (packet->len - NET_HEADER_SIZE - 1 >= 0)
 	{
-		gchar*	back_str;
+		gchar*	first_arg;
 		gchar*	p;
 		gchar*	s;
 		gchar*	p_end;
 		gchar*	cmd_str = NULL;
-		gchar	backend_buf[MAX_IP_PORT_STRING_LEN + 1];
+        gchar*  second_arg = NULL;
 		int		index = 0;
-		GPtrArray*		backend_array;
+		GPtrArray*		buffer_array;
 		gint	ret;
-		gint	fail_flag;
-		gchar	fail_flag_buf[10];
-		gint	fail_flag_ind = 0;
-		gchar*	fail_flag_err = NULL;
+	    gint    refresh_type;
 
 		cmd_str = g_strndup(&packet->str[NET_HEADER_SIZE + 1], packet->len - NET_HEADER_SIZE - 1);
-		back_str = &packet->str[NET_HEADER_SIZE + 1 + sizeof("refrush_backends('") - 1];
-		p = back_str;
+        if (g_ascii_strncasecmp(cmd_str, C("refresh_backends(")) == 0)
+        {
+		    //first_arg = &packet->str[NET_HEADER_SIZE + 1 + sizeof("refresh_backends(") - 1];
+            first_arg = cmd_str + sizeof("refresh_backends(") - 1;
+            refresh_type = ADMIN_REFRESH_TYPE_BACKENDS;
+        }
+        else if (g_ascii_strncasecmp(cmd_str, C("refresh_users(")) == 0)
+        {
+		    //first_arg = &packet->str[NET_HEADER_SIZE + 1 + sizeof("refresh_users(") - 1];
+            first_arg = cmd_str + sizeof("refresh_users(") - 1;
+            refresh_type = ADMIN_REFRESH_TYPE_USERS;
+        }
+        else 
+        {
+            return EC_ADMIN_UNKNOWN;
+        }
+             
+		p = first_arg;
 
-		backend_array = g_ptr_array_new();
-
+		buffer_array = g_ptr_array_new();
 		p_end = packet->str + packet->len;
 
-		while(p && 
-				*p != '\'' && 
-				p != p_end)
-		{
-			if (MAX_IP_PORT_STRING_LEN == index)
-			{
-				g_critical("%s: Refrush_backends error input %s",
-					G_STRLOC, cmd_str);
-				g_free(cmd_str);
-				g_ptr_array_free_all(backend_array, g_free);
-				return EC_ADMIN_RELOAD_FAIL;
-			}
-			else if (*p == ',')
-			{
-				if (index > 0)
-				{
-					backend_buf[index] = '\0';
-					g_ptr_array_add(backend_array, g_strdup(g_strstrip(backend_buf)));
-				}
-				index = 0;
-				p++;
-
-				continue;
-			}
-			
-			backend_buf[index++] = *(p++);
-		}
-
-		if (index > 0)
-		{
-			backend_buf[index] = '\0';
-			g_ptr_array_add(backend_array, g_strdup(g_strstrip(backend_buf)));
-		}
-
-		if (p == p_end || *p != '\'')
-		{
-			g_ptr_array_free_all(backend_array, g_free);
-			g_critical("%s: Refrush_backends error input %s",
-				G_STRLOC, cmd_str);
-			g_free(cmd_str);
-
-			return EC_ADMIN_RELOAD_FAIL;
-		}
-
-		p++;
-
-		//skip the space, \t 
-		while (p != p_end && g_ascii_isspace(*p))
-			p++;
+        /* 分析第一个字符参数，得到字符数组 */
+        p = admin_get_str_array_from_proc_strarg(p, p_end, &buffer_array);
+        if (p == NULL)
+        {
+            ret = EC_ADMIN_FAIL;
+            goto    destroy_end;
+        }
 
 		if (*p != ',')
 		{
-			g_ptr_array_free_all(backend_array, g_free);
-
-			g_critical("%s: Refrush_backends error input %s",
-				G_STRLOC, cmd_str);
-			g_free(cmd_str);
-
-			return EC_ADMIN_RELOAD_FAIL;
+            ret = EC_ADMIN_FAIL;
+            goto    destroy_end;
 		}
 
 		p++;
-		
-
+        
+        /* 获得第二个参数的 */
 		if (NULL == (s = strchr(p, ')')) || s - p == 0)
 		{
-			g_ptr_array_free_all(backend_array, g_free);
-
-			g_critical("%s: Refrush_backends error input %s",
-				G_STRLOC, cmd_str);
-			g_free(cmd_str);
-
-			return EC_ADMIN_RELOAD_FAIL;
+            ret = EC_ADMIN_FAIL;
+            goto    destroy_end;
 		}
 
-		memcpy(fail_flag_buf, p, s-p);
-		fail_flag_buf[s-p] = '\0';
-		g_strstrip(fail_flag_buf);
+        second_arg = g_strndup(p, s-p);
+        g_strstrip(second_arg);
 
-		fail_flag = strtoul(fail_flag_buf, &fail_flag_err, 10);
-		if (fail_flag_err[0] != '\0')
-		{
-			g_critical("%s: IP-address and fail flag has to be in the form Refrush_backends('ip:port[;ip:port..]', fail_flag) %s. Failed to parse the fail_flag at '%s'",
-					G_STRLOC, cmd_str, fail_flag_err);
-			g_free(cmd_str);
-			ret = EC_ADMIN_RELOAD_FAIL;
+        //根据不同类型进行分析
+        if (refresh_type == ADMIN_REFRESH_TYPE_BACKENDS)
+        {
+            gint	fail_flag;
+            gchar*	fail_flag_err = NULL;
 
-			return ret;
-		}
+            fail_flag = strtoul(second_arg, &fail_flag_err, 10);
+            if (fail_flag_err[0] != '\0')
+            {
+                ret = EC_ADMIN_FAIL;
+                goto    destroy_end;
+            }
 
-		g_critical("%s: Executing %s", G_STRLOC, cmd_str);
+            g_critical("%s: Executing %s", G_STRLOC, cmd_str);
 
-		//backend_buf should by ip:port, to be new backend;
-		ret = admin_reload_backends(con, backend_array, fail_flag);
-		
-		g_ptr_array_free_all(backend_array, g_free);
+            //backend_buf should by ip:port, to be new backend;
+            ret = admin_refresh_backends(con, buffer_array, fail_flag);
 
+            switch(ret)
+            {
+            case EC_ADMIN_SUCCESS:
+                network_mysqld_con_send_ok_full(con->client, 0, 0, 0, 0);
+                break;
+
+            case EC_ADMIN_REFRESH_BACKENDS_FAIL:
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh backends failed"), 4041, "2800");
+                break;
+
+            case EC_ADMIN_REFRESH_BACKENDS_NO_CONS_FILE:
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh backends success, but there is no configure file"), 4042, "2800");
+                break;
+
+            case EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL:
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh backends success, but write configure file failed"), 4043, "2800");
+                break;
+
+            default:
+                g_assert(0);
+                break;
+            }        
+        }
+        else if (refresh_type == ADMIN_REFRESH_TYPE_USERS)
+        {
+            gchar action_flag;
+            if (second_arg[0] != '\'' ||
+                second_arg[2] != '\'')
+            {
+                ret = EC_ADMIN_FAIL;
+                goto    destroy_end;
+            }
+
+            action_flag = second_arg[1];
+
+            ret = admin_refresh_users(con, buffer_array, action_flag);
+
+            switch(ret)
+            {
+            case EC_ADMIN_SUCCESS:
+                network_mysqld_con_send_ok_full(con->client, 0, 0, 0, 0);
+                break;
+
+            case EC_ADMIN_REFRESH_USERS_FAIL:
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh users failed"), 4051, "2800");
+                break;
+
+            case EC_ADMIN_REFRESH_USERS_NO_CONS_FILE:
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh users success, but there is no configure file"), 4052, "2800");
+                break;
+
+            case EC_ADMIN_REFRESH_USERS_WIRTE_FILE_FAIL:
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh users success, but write configure file failed"), 4053, "2800");
+                break;
+
+            default:
+                g_assert(0);
+                break;
+            }        
+        }
+
+destroy_end:
+        if (ret == EC_ADMIN_FAIL)
+        {
+            if (refresh_type == ADMIN_REFRESH_TYPE_BACKENDS)
+            {
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh backends failed, error input"), 4041, "2800");
+            }
+            else if (refresh_type == ADMIN_REFRESH_TYPE_USERS)
+            {
+                network_mysqld_con_send_error_full(con->client, C("Admin refresh uers failed, error input"), 4051, "2800");
+            }
+        }
+
+        g_ptr_array_free_all(buffer_array, g_free);
+        g_critical("%s: admin refresh error input %s",
+                    G_STRLOC, cmd_str);
+        
+        g_free(cmd_str);
+        if (second_arg != NULL)
+            g_free(second_arg);
+        
 		return ret;
 	}
 
-	return EC_ADMIN_RELOAD_UNKNOWN;
+	return EC_ADMIN_UNKNOWN;
+}
+
+void
+admin_get_users_resultset_func(
+    gpointer            key,
+    gpointer            key2,
+    GPtrArray           *rows                               
+)
+{
+    GPtrArray       *row;
+
+    row = g_ptr_array_new();
+
+    g_ptr_array_add(row, g_strdup(key));
+    g_ptr_array_add(rows, row);
+}
+
+gint
+admin_handle_normal_query(
+	network_mysqld_con*			con                              
+)
+{
+    gsize           i, j;
+    GPtrArray       *fields;
+    GPtrArray       *rows;
+    GPtrArray       *row;
+
+    network_socket  *recv_sock = con->client;
+    GList           *chunk  = recv_sock->recv_queue->chunks->head;
+    GString         *packet = chunk->data;
+    gchar           command;
+    gint            ret = EC_ADMIN_UNKNOWN;
+
+    if (packet->len < NET_HEADER_SIZE) 
+        return EC_ADMIN_UNKNOWN; /* packet too short */
+
+    command = packet->str[NET_HEADER_SIZE + 0];
+    if (COM_QUERY != command) 
+        return EC_ADMIN_UNKNOWN;
+
+    fields = NULL;
+    rows = NULL;
+    row = NULL;
+
+    if (0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("select * from user"))) 
+    {
+        MYSQL_FIELD *field;
+        GSet        *set;
+
+        fields = network_mysqld_proto_fielddefs_new();
+
+        field = network_mysqld_proto_fielddef_new();
+        field->name = g_strdup("user@ip");
+        field->type = FIELD_TYPE_VAR_STRING;
+        g_ptr_array_add(fields, field);
+
+        rows = g_ptr_array_new();
+        set = con->srv->user_ip_set;
+        g_hash_table_foreach(set, admin_get_users_resultset_func, rows);
+
+        network_mysqld_con_send_resultset(con->client, fields, rows);
+
+        ret = EC_ADMIN_SUCCESS;
+    }
+
+    /* clean up */
+    if (fields) {
+        network_mysqld_proto_fielddefs_free(fields);
+        fields = NULL;
+    }
+
+    if (rows) {
+        for (i = 0; i < rows->len; i++) {
+            row = rows->pdata[i];
+
+            for (j = 0; j < row->len; j++) {
+                g_free(row->pdata[j]);
+            }
+
+            g_ptr_array_free(row, TRUE);
+        }
+        g_ptr_array_free(rows, TRUE);
+        rows = NULL;
+    }
+
+    return ret;
 }
 
 gint
@@ -1125,7 +1495,7 @@ admin_process_new_conn_if_necessary(
     GString *packet = chunk->data;
 
     if (packet->len < NET_HEADER_SIZE) 
-        return EC_ADMIN_RELOAD_UNKNOWN; /* packet too short */
+        return EC_ADMIN_UNKNOWN; /* packet too short */
 
     command = packet->str[NET_HEADER_SIZE + 0];
 
@@ -1302,7 +1672,7 @@ NETWORK_MYSQLD_PLUGIN_PROTO(server_read_query) {
 	network_socket *recv_sock, *send_sock;
 	network_mysqld_con_lua_t *st = con->plugin_con_state;
 	network_mysqld_lua_stmt_ret ret;
-	gint						reload_flag = EC_ADMIN_RELOAD_UNKNOWN;
+	gint						reload_flag = EC_ADMIN_UNKNOWN;
 
 	send_sock = NULL;
 	recv_sock = con->client;
@@ -1317,39 +1687,33 @@ NETWORK_MYSQLD_PLUGIN_PROTO(server_read_query) {
 	packet = chunk->data;
 
 	//add by vinchen/CFR
-	reload_flag = admin_reload_backends_if_necessary(con);
-	if (reload_flag == EC_ADMIN_RELOAD_SUCCESS)
+    //1. 先分析refresh命令
+	reload_flag = admin_refresh_if_necessary(con);
+	if (reload_flag == EC_ADMIN_SUCCESS)
 	{
-		network_mysqld_con_send_ok_full(con->client, 0, 0, 0, 0);
+		//1.1 若成功，
 		g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
 		con->state = CON_STATE_SEND_QUERY_RESULT;
 		return NETWORK_SOCKET_SUCCESS;
 	}
-	else if (reload_flag != EC_ADMIN_RELOAD_UNKNOWN)
+	else if (reload_flag != EC_ADMIN_UNKNOWN)
 	{
-		switch(reload_flag)
-		{
-		case EC_ADMIN_RELOAD_FAIL:
-			network_mysqld_con_send_error_full(con->client, C("Admin reload backends failed"), 4041, "2800");
-			break;
-
-		case EC_ADMIN_RELOAD_NO_CONS_FILE:
-			network_mysqld_con_send_error_full(con->client, C("Admin reload backends success, but there is no configure file"), 4042, "2800");
-			break;
-
-		case EC_ADMIN_RELOAD_WIRTE_FILE_FAIL:
-			network_mysqld_con_send_error_full(con->client, C("Admin reload backends failed, but write configure file failed"), 4043, "2800");
-			break;
-
-		default:
-			g_assert(0);
-			break;
-		}
-
-		g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
+        //1.2 若失败
+        g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
 		con->state = CON_STATE_SEND_QUERY_RESULT;
 		return NETWORK_SOCKET_SUCCESS;
 	}
+    else
+    {
+        //2. 若不是refresh命令，尝试select查询，maybe select * from users;
+        if (admin_handle_normal_query(con) == EC_ADMIN_SUCCESS)
+        {
+            g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
+
+            con->state = CON_STATE_SEND_QUERY_RESULT;
+            return NETWORK_SOCKET_SUCCESS;
+        }
+    }
 
 	ret = admin_lua_read_query(con);
 
@@ -1431,6 +1795,7 @@ static void network_mysqld_admin_plugin_free(chassis_plugin_config *config) {
 	if (config->admin_username) g_free(config->admin_username);
 	if (config->admin_password) g_free(config->admin_password);
 	if (config->lua_script) g_free(config->lua_script);
+	if (config->users_file) g_free(config->users_file);
 
 	g_free(config);
 }
@@ -1447,7 +1812,7 @@ static GOptionEntry * network_mysqld_admin_plugin_get_options(chassis_plugin_con
 		{ "admin-username",           0, 0, G_OPTION_ARG_STRING, NULL, "username to allow to log in", "<string>" },
 		{ "admin-password",           0, 0, G_OPTION_ARG_STRING, NULL, "password to allow to log in", "<string>" },
 		{ "admin-lua-script",         0, 0, G_OPTION_ARG_FILENAME, NULL, "script to execute by the admin plugin", "<filename>" },
-		
+		{ "admin-users-file",         0, 0, G_OPTION_ARG_FILENAME, NULL, "white list files of user@ip", "<filename>" },
 		{ NULL,                       0, 0, G_OPTION_ARG_NONE,   NULL, NULL, NULL }
 	};
 
@@ -1456,6 +1821,7 @@ static GOptionEntry * network_mysqld_admin_plugin_get_options(chassis_plugin_con
 	config_entries[i++].arg_data = &(config->admin_username);
 	config_entries[i++].arg_data = &(config->admin_password);
 	config_entries[i++].arg_data = &(config->lua_script);
+	config_entries[i++].arg_data = &(config->users_file);
 
 	return config_entries;
 }
@@ -1483,7 +1849,15 @@ static int network_mysqld_admin_plugin_apply_config(chassis *chas, chassis_plugi
 				G_STRLOC);
 		return -1;
 	}
+    if (!config->users_file) {
+		g_critical("%s: --admin-users-file needs to be set, <install-dir>/lib/mysql-proxy/proxy-user.cnf may be a good value",
+				G_STRLOC);
+		return -1;
+	}
 
+    if (admin_read_users_file(chas, config)) {
+        return -1;
+    }
 
 	/** 
 	 * create a connection handle for the listen socket 

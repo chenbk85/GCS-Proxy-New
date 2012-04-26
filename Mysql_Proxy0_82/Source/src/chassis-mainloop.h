@@ -43,6 +43,7 @@
 #include "chassis-log.h"
 #include "chassis-stats.h"
 #include "chassis-shutdown-hooks.h"
+#include "glib-ext.h"
 
 /** @defgroup chassis Chassis
  * 
@@ -78,7 +79,10 @@ struct chassis {
 
 	chassis_shutdown_hooks_t *shutdown_hooks;
 
-	/* add by vinchen/CFR, use to write to ini file */
+    /* add by vinchen/CFR, use to write to ini file */
+
+    GSet    *user_ip_set;              /* set for user@ip */
+    GMutex  *set_mutex;
 #ifndef _WIN32
 	int		daemon_mode;				
 	guint	auto_restart;
