@@ -1621,7 +1621,8 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 			network_socket_free(con->server);
 			con->server = NULL;
 
-			return NETWORK_SOCKET_ERROR_RETRY;
+			//return NETWORK_SOCKET_ERROR_RETRY;
+            return NETWORK_SOCKET_ERROR;
 		default:
 			g_assert_not_reached();
 			break;
