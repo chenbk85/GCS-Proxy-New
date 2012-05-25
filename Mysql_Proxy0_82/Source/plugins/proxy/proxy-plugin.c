@@ -623,7 +623,8 @@ proxy_check_user_ip(
     chassis         *chas;        
     network_mysqld_auth_response    *auth;
     network_socket                  *client_sock;
-    
+    char            ip_str[100];
+
     chas = con->srv;
     client_sock = con->client;
     addr = client_sock->src;
@@ -631,7 +632,8 @@ proxy_check_user_ip(
 
     switch (addr->addr.common.sa_family) {
     case AF_INET:
-        sprintf(user_ip_buffer, "%s@%s", auth->username->str, inet_ntoa(addr->addr.ipv4.sin_addr));
+        strcpy(ip_str, inet_ntoa(addr->addr.ipv4.sin_addr));
+        sprintf(user_ip_buffer, "%s@%s", auth->username->str, ip_str);
         break;
 #ifdef HAVE_SYS_UN_H
     case AF_UNIX:
@@ -648,7 +650,14 @@ proxy_check_user_ip(
         return 0;
 
     sprintf(user_ip_buffer, "%s@%s", auth->username->str, "%");
+    if (g_set_contains(chas->user_ip_set, user_ip_buffer))
+        return 0;
 
+    sprintf(user_ip_buffer, "%s@%s", "%", ip_str);
+    if (g_set_contains(chas->user_ip_set, user_ip_buffer))
+        return 0;
+
+    sprintf(user_ip_buffer, "%s@%s", "%", "%");
     if (g_set_contains(chas->user_ip_set, user_ip_buffer))
         return 0;
 
