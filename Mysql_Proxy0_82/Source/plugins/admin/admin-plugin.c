@@ -1382,11 +1382,12 @@ destroy_end:
             {
                 network_mysqld_con_send_error_full(con->client, C("Admin refresh uers failed, error input"), 4051, "2800");
             }
+
+            g_critical("%s: admin refresh error input %s",
+                G_STRLOC, cmd_str);
         }
 
         g_ptr_array_free_all(buffer_array, g_free);
-        g_critical("%s: admin refresh error input %s",
-                    G_STRLOC, cmd_str);
         
         g_free(cmd_str);
         if (second_arg != NULL)
