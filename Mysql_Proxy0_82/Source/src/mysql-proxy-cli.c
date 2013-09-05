@@ -136,6 +136,8 @@ typedef struct {
 	char *lua_path;
 	char *lua_cpath;
 	char **lua_subdirs;
+	/* add by huibohuang,用于控制是否记录用户登陆日志，true为记录，false为不记录*/
+	gint conn_log;
 } chassis_frontend_t;
 
 /**
@@ -175,6 +177,9 @@ void chassis_frontend_free(chassis_frontend_t *frontend) {
 	if (frontend->lua_cpath) g_free(frontend->lua_cpath);
 	if (frontend->lua_subdirs) g_strfreev(frontend->lua_subdirs);
 
+	/* add by huibohung*/
+	if (frontend->conn_log) g_free(frontend->conn_log);
+
 	g_slice_free(chassis_frontend_t, frontend);
 }
 
@@ -187,6 +192,9 @@ int chassis_frontend_set_chassis_options(chassis_frontend_t *frontend, chassis_o
 
 	chassis_options_add(opts,
 		"daemon",                   0, 0, G_OPTION_ARG_NONE, &(frontend->daemon_mode), "Start in daemon-mode", NULL);
+
+	chassis_options_add(opts,
+		"conn_log",                 0, 0, G_OPTION_ARG_NONE, &(frontend->conn_log), "Record user login log", NULL);
 
 #ifndef _WIN32
 	chassis_options_add(opts,
@@ -422,6 +430,8 @@ int main_cmdline(int argc, char **argv) {
 		srv->lua_cpath_org		= g_strdup(frontend->lua_cpath);
 	srv->max_files_number	= frontend->max_files_number;
 
+	srv->conn_log = frontend->conn_log; //add by huibohuang
+
 	chassis_frontend_init_plugin_dir(&frontend->plugin_dir, srv->base_dir);
 	
 	/* 
@@ -453,6 +463,7 @@ int main_cmdline(int argc, char **argv) {
 
 		GOTO_EXIT(EXIT_FAILURE);
 	}
+
 
 	/* handle log-level after the config-file is read, just in case it is specified in the file */
 	if (frontend->log_level) {

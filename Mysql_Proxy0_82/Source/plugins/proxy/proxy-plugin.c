@@ -850,6 +850,11 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_auth) {
 		break;
 	}
 
+	/* add by huibohuang*/
+	if(con->srv->conn_log == TRUE){
+		g_critical("conn_log,current user is '%s'@'%s'",auth->username->str, inet_ntoa(con->client->src->addr.ipv4.sin_addr));
+	}
+
 	if (free_client_packet) {
 		g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
 	} else {
@@ -1186,8 +1191,12 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_query) {
 	network_mysqld_con_lua_t *st = con->plugin_con_state;
 	int proxy_query = 1;
 	network_mysqld_lua_stmt_ret ret;
+	GTimeVal now;
 	
 	NETWORK_MYSQLD_CON_TRACK_TIME(con, "proxy::ready_query::enter");
+	//add by huibohuang
+	g_get_current_time(&now);
+	con->start_time = now;
 
 	send_sock = NULL;
 	recv_sock = con->client;
@@ -1197,6 +1206,7 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_query) {
 	ret = proxy_lua_read_query(con);
 	NETWORK_MYSQLD_CON_TRACK_TIME(con, "proxy::ready_query::leave_lua");
 
+	
 	/**
 	 * if we disconnected in read_query_result() we have no connection open
 	 * when we try to execute the next query 
@@ -1964,9 +1974,14 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_local_infile_data) {
 	network_packet packet;
 	network_socket *recv_sock, *send_sock;
 	network_mysqld_com_query_result_t *com_query = con->parse.data;
+	GTimeVal now;
 
 	NETWORK_MYSQLD_CON_TRACK_TIME(con, "proxy::ready_query_result::enter");
 	
+	//add by huibohuang
+	g_get_current_time(&now);
+	con->start_time = now;
+
 	recv_sock = con->client;
 	send_sock = con->server;
 

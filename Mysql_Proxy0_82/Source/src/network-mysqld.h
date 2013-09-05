@@ -57,6 +57,7 @@
 #include "lua-scope.h"
 #include "network-backend.h"
 #include "lua-registry-keys.h"
+#include "chassis-gtimeval.h"
 
 typedef struct network_mysqld_con network_mysqld_con; /* forward declaration */
 
@@ -350,6 +351,8 @@ struct network_mysqld_con {
 	 * 
 	 */
 	chassis_timestamps_t *timestamps;
+	//add by huibohuang 用于记录用户执行操作的开始时间
+	GTimeVal start_time;
 };
 
 

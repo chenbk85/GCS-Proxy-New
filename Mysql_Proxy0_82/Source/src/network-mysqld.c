@@ -203,9 +203,12 @@ network_mysqld_con *network_mysqld_con_init() {
  */
 network_mysqld_con *network_mysqld_con_new() {
 	network_mysqld_con *con;
+	GTimeVal	now;
 
 	con = g_new0(network_mysqld_con, 1);
 	con->timestamps = chassis_timestamps_new();
+	g_get_current_time(&now);
+	con->start_time = now;
 	con->parse.command = -1;
 
 	return con;

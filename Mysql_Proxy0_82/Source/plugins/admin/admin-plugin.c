@@ -77,6 +77,11 @@
  * In a similar way the @c config section of @c proxy.global should be exposed allowing the admin plugin to change the
  * configuration at runtime. @see lib/proxy/auto-config.lua
  */
+#ifndef _WIN32
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -92,6 +97,7 @@
 #include "sys-pedantic.h"
 #include "glib-ext.h"
 #include "lua-env.h"
+#include "chassis-gtimeval.h"
 
 #include <gmodule.h>
 
@@ -370,7 +376,9 @@ gchar*		ini_str_app1 =
 %skeepalive = true\n\
     #*Try to restart the proxy if a crash occurs\n\
 %sdaemon = true\n\
-    #*Start in daemon mode\n";
+    #*Start in daemon mode\n\
+%sconn_log = %s\n\
+	#*Record user login log\n";
 
 gchar*		ini_str_app2 =
 "%smax-open-files=%d\n\
@@ -393,12 +401,13 @@ gchar*		ini_str_app2 =
 #define EC_ADMIN_SUCCESS	0
 #define EC_ADMIN_UNKNOWN    1	
 #define EC_ADMIN_REFRESH_BACKENDS_FAIL              2	
-#define EC_ADMIN_REFRESH_BACKENDS_NO_CONS_FILE      3   
-#define EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL   4	
+#define EC_ADMIN_REFRESH_NO_CONS_FILE      3   
+#define EC_ADMIN_REFRESH_WIRTE_FILE_FAIL   4	
 #define EC_ADMIN_REFRESH_USERS_FAIL                 5	
 #define EC_ADMIN_REFRESH_USERS_NO_CONS_FILE         6   
 #define EC_ADMIN_REFRESH_USERS_WIRTE_FILE_FAIL      7	
 #define EC_ADMIN_FAIL       8	
+#define EC_ADMIN_REFRESH_CONNLOG_FAIL                 9	
 
 void
 network_mysqld_admin_plugin_get_ini_str(
@@ -439,7 +448,7 @@ admin_configure_flush_to_file(
 	int					ret;
 
 	if (!srv->default_file)
-		return EC_ADMIN_REFRESH_BACKENDS_NO_CONS_FILE;
+		return EC_ADMIN_REFRESH_NO_CONS_FILE;
 
 	new_str = g_string_new_len(NULL, 100000);
 
@@ -546,10 +555,10 @@ admin_configure_flush_to_file(
  		"",										plugins_buf,
 #ifndef _WIN32
  		srv->auto_restart ? "" : "#",
- 		srv->daemon_mode ? "" : "#");
+		srv->daemon_mode ? "" : "#","",srv->conn_log == TRUE ? "true" : "false");
 #else
  		"#",
- 		"#");
+ 		"#","",srv->conn_log == TRUE ? "true" : "false");
 #endif
 
 	g_string_append(new_str, buf);
@@ -581,11 +590,11 @@ admin_configure_flush_to_file(
 
 		g_critical("%s: Can't open ini file %s",
 			G_STRLOC, srv->default_file);
-		return EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL;
+		return EC_ADMIN_REFRESH_WIRTE_FILE_FAIL;
 	}
 
 	if (fprintf(ini_file, new_str->str) < 0)
-		ret = EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL;
+		ret = EC_ADMIN_REFRESH_WIRTE_FILE_FAIL;
 	else
 		ret = EC_ADMIN_SUCCESS;
 
@@ -1070,6 +1079,7 @@ destroy_end:
 
 #define ADMIN_REFRESH_TYPE_BACKENDS 0
 #define ADMIN_REFRESH_TYPE_USERS    1
+#define ADMIN_REFRESH_TYPE_CONNLOG  2
 
 /*
     根据存储函数的字符参数以及逗号分隔符获得字符数组，并返回读取位置
@@ -1137,6 +1147,43 @@ admin_get_str_array_from_proc_strarg(
         p++;
 
     return p;
+}
+
+/* add by huibohuang */
+static
+gint
+admin_refresh_connlog(
+	network_mysqld_con*         con,
+	gchar*					    conn_flag
+)
+{
+	chassis*	srv;
+	gint		ret = 0;
+	gint		new_conn_flag;
+	gchar*		fail_flag_err = NULL;
+
+	srv = con->srv;
+	new_conn_flag = strtoul(conn_flag,&fail_flag_err, 10);
+
+	if (fail_flag_err[0] != '\0')
+	{
+		g_critical("%s: Fail flag of refresh connlog must be 0 or 1, but the flag is %s",
+			G_STRLOC, fail_flag_err);
+		ret = EC_ADMIN_REFRESH_CONNLOG_FAIL;
+		return ret;
+	}
+
+	if (new_conn_flag != 0 && new_conn_flag != 1)
+	{
+		g_critical("%s: Fail flag of refresh connlog must be 0 or 1, but the flag is %d",
+			G_STRLOC, new_conn_flag);
+		ret = EC_ADMIN_REFRESH_CONNLOG_FAIL;
+		return ret;
+	}
+	srv->conn_log = new_conn_flag;
+	ret = admin_configure_flush_to_file(srv);
+
+	return ret;
 }
 
 static
@@ -1256,42 +1303,58 @@ admin_refresh_if_necessary(
             first_arg = cmd_str + sizeof("refresh_users(") - 1;
             refresh_type = ADMIN_REFRESH_TYPE_USERS;
         }
+		else if(g_ascii_strncasecmp(cmd_str, C("refresh_connlog(")) == 0)
+		{
+			//add by huibohuang
+			first_arg = cmd_str + sizeof("refresh_connlog(") - 1;
+			refresh_type = ADMIN_REFRESH_TYPE_CONNLOG;
+		}
         else 
         {
             return EC_ADMIN_UNKNOWN;
         }
              
 		p = first_arg;
-
 		buffer_array = g_ptr_array_new();
-		p_end = packet->str + packet->len;
+		
+		if(refresh_type == ADMIN_REFRESH_TYPE_CONNLOG){
+			if (NULL == (s = strchr(p, ')')) || s - p == 0){
+				ret = EC_ADMIN_FAIL;
+				goto    destroy_end;
+			}
+			first_arg = g_strndup(p, s-p);
+			g_strstrip(first_arg);
+		}else{
+			p_end = packet->str + packet->len;
+			/* 分析第一个字符参数，得到字符数组 */
+			p = admin_get_str_array_from_proc_strarg(p, p_end, &buffer_array);
+			if (p == NULL)
+			{
+				ret = EC_ADMIN_FAIL;
+				goto    destroy_end;
+			}
 
-        /* 分析第一个字符参数，得到字符数组 */
-        p = admin_get_str_array_from_proc_strarg(p, p_end, &buffer_array);
-        if (p == NULL)
-        {
-            ret = EC_ADMIN_FAIL;
-            goto    destroy_end;
-        }
+			if(refresh_type != ADMIN_REFRESH_TYPE_CONNLOG){
+				//modify by huibohuang,refresh_connlog不需要第二个参数
+				if (*p != ',')
+				{
+					ret = EC_ADMIN_FAIL;
+					goto    destroy_end;
+				}
 
-		if (*p != ',')
-		{
-            ret = EC_ADMIN_FAIL;
-            goto    destroy_end;
+				p++;
+		        
+				/* 获得第二个参数的 */
+				if (NULL == (s = strchr(p, ')')) || s - p == 0)
+				{
+					ret = EC_ADMIN_FAIL;
+					goto    destroy_end;
+				}
+
+				second_arg = g_strndup(p, s-p);
+				g_strstrip(second_arg);
+			}
 		}
-
-		p++;
-        
-        /* 获得第二个参数的 */
-		if (NULL == (s = strchr(p, ')')) || s - p == 0)
-		{
-            ret = EC_ADMIN_FAIL;
-            goto    destroy_end;
-		}
-
-        second_arg = g_strndup(p, s-p);
-        g_strstrip(second_arg);
-
         //根据不同类型进行分析
         if (refresh_type == ADMIN_REFRESH_TYPE_BACKENDS)
         {
@@ -1320,11 +1383,11 @@ admin_refresh_if_necessary(
                 network_mysqld_con_send_error_full(con->client, C("Admin refresh backends failed"), 4041, "2800");
                 break;
 
-            case EC_ADMIN_REFRESH_BACKENDS_NO_CONS_FILE:
+            case EC_ADMIN_REFRESH_NO_CONS_FILE:
                 network_mysqld_con_send_error_full(con->client, C("Admin refresh backends success, but there is no configure file"), 4042, "2800");
                 break;
 
-            case EC_ADMIN_REFRESH_BACKENDS_WIRTE_FILE_FAIL:
+            case EC_ADMIN_REFRESH_WIRTE_FILE_FAIL:
                 network_mysqld_con_send_error_full(con->client, C("Admin refresh backends success, but write configure file failed"), 4043, "2800");
                 break;
 
@@ -1369,7 +1432,33 @@ admin_refresh_if_necessary(
                 g_assert(0);
                 break;
             }        
-        }
+        }else if(refresh_type == ADMIN_REFRESH_TYPE_CONNLOG)
+		{
+			ret = admin_refresh_connlog(con, first_arg);
+
+			switch(ret)
+			{
+			case EC_ADMIN_SUCCESS:
+				network_mysqld_con_send_ok_full(con->client, 0, 0, 0, 0);
+				break;
+
+			case EC_ADMIN_REFRESH_CONNLOG_FAIL:
+				network_mysqld_con_send_error_full(con->client, C("Admin refresh connlog failed"), 4061, "2800");
+				break;
+
+			case EC_ADMIN_REFRESH_NO_CONS_FILE:
+				network_mysqld_con_send_error_full(con->client, C("Admin refresh connlog success, but there is no configure file"), 4062, "2800");
+				break;
+
+			case EC_ADMIN_REFRESH_WIRTE_FILE_FAIL:
+				network_mysqld_con_send_error_full(con->client, C("Admin refresh connlog success, but write configure file failed"), 4063, "2800");
+				break;
+
+			default:
+				g_assert(0);
+				break;
+			}   
+		}
 
 destroy_end:
         if (ret == EC_ADMIN_FAIL)
@@ -1381,7 +1470,10 @@ destroy_end:
             else if (refresh_type == ADMIN_REFRESH_TYPE_USERS)
             {
                 network_mysqld_con_send_error_full(con->client, C("Admin refresh uers failed, error input"), 4051, "2800");
-            }
+            }else if(refresh_type == ADMIN_REFRESH_TYPE_CONNLOG)
+			{
+				network_mysqld_con_send_error_full(con->client, C("Admin refresh connlog failed, error input"), 4061, "2800");
+			}
 
             g_critical("%s: admin refresh error input %s",
                 G_STRLOC, cmd_str);
@@ -1429,6 +1521,12 @@ admin_handle_normal_query(
     GString         *packet = chunk->data;
     gchar           command;
     gint            ret = EC_ADMIN_UNKNOWN;
+	
+	/*  add by huibohuang
+	 */
+	GPtrArray*		cons;
+	chassis*		srv;
+	network_mysqld_con*		tcon;
 
     if (packet->len < NET_HEADER_SIZE) 
         return EC_ADMIN_UNKNOWN; /* packet too short */
@@ -1461,6 +1559,68 @@ admin_handle_normal_query(
 
         ret = EC_ADMIN_SUCCESS;
     }
+	else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("show processlist")))
+	{
+		//add by huibohuang
+		MYSQL_FIELD *field;
+		gchar thread_id[50];
+		gchar host[50];
+		gchar ftime[20];
+		GTimeVal	now;
+		gint64		tdiff;
+		gchar*	cols[] = {"Id","User","Host","db","Time"};
+		
+		fields = network_mysqld_proto_fielddefs_new();
+		for (i = 0; i < 5; ++i){
+			field = network_mysqld_proto_fielddef_new();
+			field->name = g_strdup(cols[i]);
+			field->type = FIELD_TYPE_VAR_STRING;
+			g_ptr_array_add(fields,field);
+		}
+
+		rows = g_ptr_array_new();
+		srv = con->srv;
+		cons = srv->priv->cons;
+
+		g_mutex_lock(srv->priv->cons_mutex);
+		for (i = 0; i < cons->len; ++i)
+		{
+			tcon = g_ptr_array_index(cons, i);
+			if (tcon->server && tcon->client)
+			{
+				if(tcon->server->challenge && tcon->client->response && tcon->client->default_db){
+					row = g_ptr_array_new();
+
+					sprintf(thread_id,"%d",tcon->server->challenge->thread_id);
+					g_ptr_array_add(row, g_strdup(thread_id));
+					
+
+					g_ptr_array_add(row, g_strdup(tcon->client->response->username->str));
+
+					sprintf(host,"%s:%d",inet_ntoa(tcon->client->src->addr.ipv4.sin_addr),tcon->client->src->addr.ipv4.sin_port);
+					g_ptr_array_add(row, g_strdup(host));
+
+					if((tcon->client->default_db->str)[0] != '\0'){
+						g_ptr_array_add(row, g_strdup(tcon->client->default_db->str));
+					}else{
+						g_ptr_array_add(row, g_strdup("NULL"));
+					}
+
+					g_get_current_time(&now);
+					ge_gtimeval_diff(&(tcon->start_time), &now, &tdiff);
+					tdiff /= G_USEC_PER_SEC;
+					sprintf(ftime,"%d",tdiff);
+					g_ptr_array_add(row, g_strdup(ftime));
+
+					g_ptr_array_add(rows, row);
+				}
+			}
+		}
+		g_mutex_unlock(srv->priv->cons_mutex);
+
+		network_mysqld_con_send_resultset(con->client, fields, rows);
+		ret = EC_ADMIN_SUCCESS;
+	}
 
     /* clean up */
     if (fields) {

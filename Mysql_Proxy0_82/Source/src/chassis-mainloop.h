@@ -79,6 +79,9 @@ struct chassis {
 
 	chassis_shutdown_hooks_t *shutdown_hooks;
 
+	/* add by huibohuang,用于控制是否记录用户登陆日志，true为记录，false为不记录*/
+	gint conn_log;
+
     /* add by vinchen/CFR, use to write to ini file */
 
     GSet    *user_ip_set;              /* set for user@ip */

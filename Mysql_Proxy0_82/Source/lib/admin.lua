@@ -85,6 +85,10 @@ function read_query(packet)
 		}
 		rows[#rows + 1] = { "SELECT * FROM help", "shows this help" }
 		rows[#rows + 1] = { "SELECT * FROM backends", "lists the backends and their state" }
+		rows[#rows + 1] = { "show processlist", "lists the client connection info" }
+		rows[#rows + 1] = { "refresh_backends('host:port',flag)", "change backends configuration.param(flag):must be 0 or 1" }
+		rows[#rows + 1] = { "refresh_users('user@host','flag')", "refresh proxy users.param(flag):'+'=>add user;'-'=>drop user;'='=>cover user" }
+		rows[#rows + 1] = { "refresh_connlog(flag)", "controls whether to write the log.param(flag):1=>write log;0=>not write log" }
 	else
 		set_error("use 'SELECT * FROM help' to see the supported commands")
 		return proxy.PROXY_SEND_RESULT
