@@ -850,11 +850,6 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_read_auth) {
 		break;
 	}
 
-	/* add by huibohuang*/
-	if(con->srv->conn_log == TRUE){
-		g_critical("conn_log,current user is '%s'@'%s'",auth->username->str, inet_ntoa(con->client->src->addr.ipv4.sin_addr));
-	}
-
 	if (free_client_packet) {
 		g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
 	} else {

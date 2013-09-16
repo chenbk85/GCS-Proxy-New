@@ -177,9 +177,6 @@ void chassis_frontend_free(chassis_frontend_t *frontend) {
 	if (frontend->lua_cpath) g_free(frontend->lua_cpath);
 	if (frontend->lua_subdirs) g_strfreev(frontend->lua_subdirs);
 
-	/* add by huibohung*/
-	if (frontend->conn_log) g_free(frontend->conn_log);
-
 	g_slice_free(chassis_frontend_t, frontend);
 }
 

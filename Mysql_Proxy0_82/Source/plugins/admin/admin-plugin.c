@@ -1333,27 +1333,26 @@ admin_refresh_if_necessary(
 				ret = EC_ADMIN_FAIL;
 				goto    destroy_end;
 			}
-
-			if(refresh_type != ADMIN_REFRESH_TYPE_CONNLOG){
-				//modify by huibohuang,refresh_connlog不需要第二个参数
-				if (*p != ',')
-				{
-					ret = EC_ADMIN_FAIL;
-					goto    destroy_end;
-				}
-
-				p++;
-		        
-				/* 获得第二个参数的 */
-				if (NULL == (s = strchr(p, ')')) || s - p == 0)
-				{
-					ret = EC_ADMIN_FAIL;
-					goto    destroy_end;
-				}
-
-				second_arg = g_strndup(p, s-p);
-				g_strstrip(second_arg);
+			
+			//modify by huibohuang,refresh_connlog不需要第二个参数
+			if (*p != ',')
+			{
+				ret = EC_ADMIN_FAIL;
+				goto    destroy_end;
 			}
+
+			p++;
+
+			/* 获得第二个参数的 */
+			if (NULL == (s = strchr(p, ')')) || s - p == 0)
+			{
+				ret = EC_ADMIN_FAIL;
+				goto    destroy_end;
+			}
+
+			second_arg = g_strndup(p, s-p);
+			g_strstrip(second_arg);
+			
 		}
         //根据不同类型进行分析
         if (refresh_type == ADMIN_REFRESH_TYPE_BACKENDS)
@@ -1563,9 +1562,9 @@ admin_handle_normal_query(
 	{
 		//add by huibohuang
 		MYSQL_FIELD *field;
-		gchar thread_id[50];
+		gchar thread_id_str[50];
 		gchar host[50];
-		gchar ftime[20];
+		gchar ftime_str[20];
 		GTimeVal	now;
 		gint64		tdiff;
 		gchar*	cols[] = {"Id","User","Host","db","Time"};
@@ -1586,21 +1585,23 @@ admin_handle_normal_query(
 		for (i = 0; i < cons->len; ++i)
 		{
 			tcon = g_ptr_array_index(cons, i);
-			if (tcon->server && tcon->client)
+			if (tcon->server && tcon->client && tcon->client->src)
 			{
-				if(tcon->server->challenge && tcon->client->response && tcon->client->default_db){
+				if(tcon->server->challenge && tcon->client->response && tcon->client->response->username &&
+					tcon->client->default_db){
 					row = g_ptr_array_new();
 
-					sprintf(thread_id,"%d",tcon->server->challenge->thread_id);
-					g_ptr_array_add(row, g_strdup(thread_id));
-					
-
-					g_ptr_array_add(row, g_strdup(tcon->client->response->username->str));
-
-					sprintf(host,"%s:%d",inet_ntoa(tcon->client->src->addr.ipv4.sin_addr),tcon->client->src->addr.ipv4.sin_port);
+					snprintf(thread_id_str, sizeof(thread_id_str) - 1 , "%d",tcon->server->challenge->thread_id);
+					g_ptr_array_add(row, g_strdup(thread_id_str));
+										
+				    g_ptr_array_add(row, g_strdup(tcon->client->response->username->str));
+														
+					// 目前一定是ipv4
+					g_assert(tcon->client->src->addr.common.sa_family == AF_INET);
+					snprintf(host, sizeof(host) - 1, "%s:%d",inet_ntoa(tcon->client->src->addr.ipv4.sin_addr),tcon->client->src->addr.ipv4.sin_port);
 					g_ptr_array_add(row, g_strdup(host));
 
-					if((tcon->client->default_db->str)[0] != '\0'){
+					if(tcon->client->default_db->len > 0){
 						g_ptr_array_add(row, g_strdup(tcon->client->default_db->str));
 					}else{
 						g_ptr_array_add(row, g_strdup("NULL"));
@@ -1609,8 +1610,8 @@ admin_handle_normal_query(
 					g_get_current_time(&now);
 					ge_gtimeval_diff(&(tcon->start_time), &now, &tdiff);
 					tdiff /= G_USEC_PER_SEC;
-					sprintf(ftime,"%d",tdiff);
-					g_ptr_array_add(row, g_strdup(ftime));
+					snprintf(ftime_str, sizeof(ftime_str) -1, "%d",tdiff);
+					g_ptr_array_add(row, g_strdup(ftime_str));
 
 					g_ptr_array_add(rows, row);
 				}
