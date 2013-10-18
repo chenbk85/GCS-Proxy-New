@@ -138,6 +138,7 @@ typedef struct {
 	char **lua_subdirs;
 	/* add by huibohuang,用于控制是否记录用户登陆日志，true为记录，false为不记录*/
 	gint conn_log;
+	gchar **ignore_user;
 } chassis_frontend_t;
 
 /**
@@ -173,6 +174,10 @@ void chassis_frontend_free(chassis_frontend_t *frontend) {
 		g_strfreev(frontend->plugin_names);
 	}
 
+	if(frontend->ignore_user){
+		g_strfreev(frontend->ignore_user);
+	}
+
 	if (frontend->lua_path) g_free(frontend->lua_path);
 	if (frontend->lua_cpath) g_free(frontend->lua_cpath);
 	if (frontend->lua_subdirs) g_strfreev(frontend->lua_subdirs);
@@ -192,6 +197,8 @@ int chassis_frontend_set_chassis_options(chassis_frontend_t *frontend, chassis_o
 
 	chassis_options_add(opts,
 		"conn_log",                 0, 0, G_OPTION_ARG_NONE, &(frontend->conn_log), "Record user login log", NULL);
+	chassis_options_add(opts,
+		"ignore-user",                 0, 0, G_OPTION_ARG_STRING_ARRAY, &(frontend->ignore_user), "not to record user", "<user>");
 
 #ifndef _WIN32
 	chassis_options_add(opts,
@@ -428,6 +435,8 @@ int main_cmdline(int argc, char **argv) {
 	srv->max_files_number	= frontend->max_files_number;
 
 	srv->conn_log = frontend->conn_log; //add by huibohuang
+	
+	srv->ignore_user = g_strdupv(frontend->ignore_user);
 
 	chassis_frontend_init_plugin_dir(&frontend->plugin_dir, srv->base_dir);
 	

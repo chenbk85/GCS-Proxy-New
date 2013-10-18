@@ -672,8 +672,18 @@ network_socket_retval_t plugin_call(chassis *srv, network_mysqld_con *con, int s
 				if(con->srv->conn_log == TRUE){
 					if(con->client && con->client->response && con->client->src && con->client->response->username){
 						// 目前一定是ipv4
-						g_assert(con->client->src->addr.common.sa_family == AF_INET);
-						g_critical("conn_log,current user is '%s'@'%s'",con->client->response->username->str, inet_ntoa(con->client->src->addr.ipv4.sin_addr));
+						int i;
+						int is_record = 1;
+						for (i = 0; con->srv->ignore_user[i]; i++) {
+							if (g_ascii_strcasecmp(con->client->response->username->str,g_strstrip(con->srv->ignore_user[i])) == 0){
+								is_record = 0;
+								break;
+							}
+						}
+						if(is_record == 1){
+							g_assert(con->client->src->addr.common.sa_family == AF_INET);
+							g_critical("conn_log,current user is '%s'@'%s'",con->client->response->username->str, inet_ntoa(con->client->src->addr.ipv4.sin_addr));
+						}
 					}
 				}
 				con->state = CON_STATE_READ_QUERY;

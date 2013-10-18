@@ -81,6 +81,7 @@ struct chassis {
 
 	/* add by huibohuang,用于控制是否记录用户登陆日志，true为记录，false为不记录*/
 	gint conn_log;
+	gchar **ignore_user;
 
     /* add by vinchen/CFR, use to write to ini file */
 
