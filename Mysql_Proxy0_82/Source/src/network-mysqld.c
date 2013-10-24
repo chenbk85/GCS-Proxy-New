@@ -674,7 +674,7 @@ network_socket_retval_t plugin_call(chassis *srv, network_mysqld_con *con, int s
 						// 目前一定是ipv4
 						int i;
 						int is_record = 1;
-						for (i = 0; con->srv->ignore_user[i]; i++) {
+						for (i = 0; con->srv->ignore_user && con->srv->ignore_user[i]; i++) {
 							if (g_ascii_strcasecmp(con->client->response->username->str,g_strstrip(con->srv->ignore_user[i])) == 0){
 								is_record = 0;
 								break;

@@ -254,6 +254,8 @@ void chassis_free(chassis *chas) {
 		g_free(chas->pid_file_org);
 	if (chas->default_file)
 		g_free(chas->default_file);
+	if(chas->ignore_user)
+		g_strfreev(chas->ignore_user);
 	
 	g_free(chas);
 }

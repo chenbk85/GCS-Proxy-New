@@ -378,7 +378,9 @@ gchar*		ini_str_app1 =
 %sdaemon = true\n\
     #*Start in daemon mode\n\
 %sconn_log = %s\n\
-	#*Record user login log\n";
+	#*Record user login log\n\
+%signore-user = %s\n\
+	#*The user not record to login log\n";
 
 gchar*		ini_str_app2 =
 "%smax-open-files=%d\n\
@@ -438,6 +440,7 @@ admin_configure_flush_to_file(
 // 	gint				r_backends_cnt = 0;
 	gchar				buf[65535];
 	gchar				plugins_buf[1000];
+	GString*			ignore_str;
 	guint				i;
 	chassis_plugin*		plugin;
 	chassis_plugin*		admin_plugin = NULL;
@@ -475,6 +478,14 @@ admin_configure_flush_to_file(
 			strcat(plugins_buf, ", ");
 			strcat(plugins_buf, plugin->name);
 		}
+	}
+    
+	ignore_str = g_string_new_len(NULL,100);
+	for (i = 0; srv->ignore_user && srv->ignore_user[i]; i++){
+		if (i > 0){
+			g_string_append(ignore_str,",");
+		}
+		g_string_append(ignore_str, srv->ignore_user[i]);
 	}
 
 	//find_backends
@@ -555,10 +566,10 @@ admin_configure_flush_to_file(
  		"",										plugins_buf,
 #ifndef _WIN32
  		srv->auto_restart ? "" : "#",
-		srv->daemon_mode ? "" : "#","",srv->conn_log == TRUE ? "true" : "false");
+		srv->daemon_mode ? "" : "#","",srv->conn_log == TRUE ? "true" : "false","",ignore_str->str);
 #else
  		"#",
- 		"#","",srv->conn_log == TRUE ? "true" : "false");
+		"#","",srv->conn_log == TRUE ? "true" : "false","",ignore_str->str);
 #endif
 
 	g_string_append(new_str, buf);
