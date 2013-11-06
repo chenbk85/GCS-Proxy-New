@@ -1764,7 +1764,7 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 			g_message("%s.%d: connecting to backend (%s) failed, marking it as down for ...", 
 					__FILE__, __LINE__, con->server->dst->name->str);
 
-			st->backend->state = BACKEND_STATE_DOWN;
+			st->backend->state = BACKEND_STATE_UNKNOWN;
 			chassis_gtime_testset_now(&st->backend->state_since, NULL);
 
 			network_socket_free(con->server);
