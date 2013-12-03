@@ -1,9 +1,9 @@
 1.Ö´ÐÐ
-export PKG_CONFIG_PATH=/usr/local/mysql-proxy-0.82/pkgconfig:$PKG_CONFIG_PATH
+export PKG_CONFIG_PATH=/usr/local/mysql-proxy/pkgconfig:$PKG_CONFIG_PATH
 
 2.Ö´ÐÐ
 chmod +x ./configure
-./configure --prefix=/usr/local/mysql-proxy-0.82 CFLAGS="-I/usr/local/mysql-proxy-0.82/libevent-2.0.15-stable/include"
+./configure --prefix=/usr/local/mysql-proxy CFLAGS="-I/usr/local/mysql-proxy/libevent-2.0.15-stable/include"
 
 3.
 make
