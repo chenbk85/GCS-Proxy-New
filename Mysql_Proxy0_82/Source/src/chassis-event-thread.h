@@ -59,9 +59,9 @@ typedef struct {
 
 	GThread *thr;
 
-#ifdef _VINCHEN_TEST
-	unsigned int event_add_cnt;			/* add by vinchen/CFR, for debug */
-#endif // _VINCHEN_TEST
+//#ifdef _VINCHEN_TEST
+	unsigned long event_add_cnt;			/* add by vinchen/CFR, for debug */
+//#endif // _VINCHEN_TEST
 
 	struct event_base *event_base;
 } chassis_event_thread_t;

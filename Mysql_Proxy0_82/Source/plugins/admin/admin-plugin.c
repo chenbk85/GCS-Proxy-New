@@ -1268,18 +1268,6 @@ admin_refresh_if_necessary(
 
 	command = packet->str[NET_HEADER_SIZE + 0];
 
-#ifdef _VINCHEN_TEST
-    {
-        int i = 0;
-        for (i = 0; i < con->srv->event_thread_count; i++) 
-        {
-            chassis_event_thread_t * event_thread = con->srv->threads->event_threads->pdata[i];
-
-            g_message("thread event [%d] count %u\n", i, event_thread->event_add_cnt); //add by vinchen/CFR
-        }
-    }
-#endif
-
 #ifdef _VINCHEN_TEST2
     if (COM_QUERY == command)
     {  
@@ -1580,6 +1568,37 @@ admin_handle_normal_query(
 
         network_mysqld_con_send_resultset(con->client, fields, rows);
 
+        ret = EC_ADMIN_SUCCESS;
+    }
+    else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("show balances")))
+    {
+        //add by vinchen 
+        MYSQL_FIELD *field;
+        gchar id_str[50];
+        gchar*	cols[] = {"Id","Count"};
+
+        fields = network_mysqld_proto_fielddefs_new();
+        for (i = 0; i < 2; ++i){
+            field = network_mysqld_proto_fielddef_new();
+            field->name = g_strdup(cols[i]);
+            field->type = FIELD_TYPE_VAR_STRING;
+            g_ptr_array_add(fields,field);
+        }
+
+        rows = g_ptr_array_new();
+        srv = con->srv;
+        for (i = 0; i < (unsigned)srv->event_thread_count; ++i)
+        {
+            chassis_event_thread_t * event_thread = con->srv->threads->event_threads->pdata[i];
+
+            snprintf(id_str, sizeof(id_str) - 1 , "%d", i);
+            g_ptr_array_add(row, g_strdup(id_str));
+
+            snprintf(id_str, sizeof(id_str) - 1 , "%ul", event_thread->event_add_cnt);
+            g_ptr_array_add(row, g_strdup(id_str));
+        }
+
+        network_mysqld_con_send_resultset(con->client, fields, rows);
         ret = EC_ADMIN_SUCCESS;
     }
 	else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("show processlist")))

@@ -134,9 +134,9 @@ void chassis_event_add(chassis *chas, struct event *ev) {
 
 	event_thread = chas->threads->event_threads->pdata[r_num];
 
-#ifdef _VINCHEN_TEST
+//#ifdef _VINCHEN_TEST
 	event_thread->event_add_cnt++;			/* add by vinchen/CFR, for debug */
-#endif // _VINCHEN_TEST
+//#endif // _VINCHEN_TEST
 
 	event_base_set(event_thread->event_base, ev);
 	event_add(ev, NULL);
