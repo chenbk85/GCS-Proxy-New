@@ -98,6 +98,7 @@
 #include "glib-ext.h"
 #include "lua-env.h"
 #include "chassis-gtimeval.h"
+#include "chassis-event-thread.h"
 
 #include <gmodule.h>
 
@@ -1268,6 +1269,18 @@ admin_refresh_if_necessary(
 	command = packet->str[NET_HEADER_SIZE + 0];
 
 #ifdef _VINCHEN_TEST
+    {
+        int i = 0;
+        for (i = 0; i < con->srv->event_thread_count; i++) 
+        {
+            chassis_event_thread_t * event_thread = con->srv->threads->event_threads->pdata[i];
+
+            g_message("thread event [%d] count %u\n", i, event_thread->event_add_cnt); //add by vinchen/CFR
+        }
+    }
+#endif
+
+#ifdef _VINCHEN_TEST2
     if (COM_QUERY == command)
     {  
         gchar*	cmd_str = NULL;
@@ -1281,7 +1294,7 @@ admin_refresh_if_necessary(
     {
         printf("not a query : %d\n", command);
     }
-#endif // _VINCHEN_TEST
+#endif // _VINCHEN_TEST2
 
 	/* not a query */
 	if (COM_QUERY != command) 
