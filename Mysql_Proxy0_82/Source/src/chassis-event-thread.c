@@ -46,6 +46,7 @@
 
 #include "chassis-event-thread.h"
 #include "network-mysqld.h"
+#include "network-mysqld-packet.h"
 
 #define C(x) x, sizeof(x) - 1
 #ifndef WIN32
@@ -93,8 +94,14 @@ void chassis_event_op_apply(chassis_event_op_t *op, struct event_base *event_bas
 //add by vinchen/CFR
 #include <stdlib.h>
 
-int chassis_event_get_random_int() {
-	unsigned int thread_id;
+int chassis_event_get_random_int(network_mysqld_con* con) {
+	unsigned int thread_id = 0;
+
+    if (con->server && con->server->challenge)
+        thread_id = con->server->challenge->thread_id;
+
+    if (thread_id != 0)
+        return thread_id;
 
 #ifdef WIN32
 	thread_id = (unsigned int) GetCurrentThreadId();
@@ -130,9 +137,9 @@ void chassis_event_add(chassis *chas, struct event *ev, void* user_data) {
 		use random num to determin the handle thread's event_base.
 		because libevent 2.0 or higher is thread-safe, it's safe to do this
 	*/
-	gint32 r_num = chassis_event_get_random_int() % chas->event_thread_count;
 	chassis_event_thread_t*	event_thread;
     network_mysqld_con* con = (network_mysqld_con*)user_data;
+    gint32 r_num = chassis_event_get_random_int(con) % chas->event_thread_count;
 
 	event_thread = chas->threads->event_threads->pdata[r_num];
 	event_thread->event_add_cnt++;			/* add by vinchen/CFR, for debug */

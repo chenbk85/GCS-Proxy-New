@@ -1596,13 +1596,27 @@ admin_handle_normal_query(
             snprintf(id_str, sizeof(id_str) - 1 , "%d", i);
             g_ptr_array_add(row, g_strdup(id_str));
 
-            snprintf(id_str, sizeof(id_str) - 1 , "%ul", event_thread->event_add_cnt);
+            snprintf(id_str, sizeof(id_str) - 1 , "%lu", event_thread->event_add_cnt);
             g_ptr_array_add(row, g_strdup(id_str));
 
             g_ptr_array_add(rows, row);
         }
 
         network_mysqld_con_send_resultset(con->client, fields, rows);
+        ret = EC_ADMIN_SUCCESS;
+    }
+    else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("flush balances")))
+    {
+        //add by vinchen 
+        srv = con->srv;
+        for (i = 0; i < (unsigned)srv->event_thread_count; ++i)
+        {
+            chassis_event_thread_t * event_thread = con->srv->threads->event_threads->pdata[i];
+
+            event_thread->event_add_cnt = 0;
+        }
+
+        network_mysqld_con_send_ok_full(con->client, 0, 0, 0, 0);
         ret = EC_ADMIN_SUCCESS;
     }
 	else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("show processlist")))
