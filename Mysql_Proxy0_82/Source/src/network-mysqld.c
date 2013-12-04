@@ -933,12 +933,12 @@ void network_mysqld_con_handle(int event_fd, short events, void *user_data) {
 
 #define WAIT_FOR_EVENT(ev_struct, ev_type, timeout) \
 	event_set(&(ev_struct->event), ev_struct->fd, ev_type, network_mysqld_con_handle, user_data); \
-	chassis_event_add(srv, &(ev_struct->event)); 
+	chassis_event_add(srv, &(ev_struct->event), user_data); 
 
 	/* add by vinchen/CFR */
 #define WAIT_FOR_EVENT_EX(ev_struct, ev_type, timeout) \
 	event_set(&(ev_struct->event), ev_struct->fd, ev_type, network_mysqld_con_handle, user_data); \
-	chassis_event_add_ex(srv, &(ev_struct->event));
+	chassis_event_add_ex(srv, &(ev_struct->event), user_data);
 
 	/**
 	 * loop on the same connection as long as we don't end up in a stable state
@@ -1953,6 +1953,7 @@ void network_mysqld_con_accept(int G_GNUC_UNUSED event_fd, short events, void *u
 
 	client_con->plugins = listen_con->plugins;
 	client_con->config  = listen_con->config;
+    client_con->thread_id = 0; // 初始化为0，实际accept线程也是0号线程
 	
 	network_mysqld_con_handle(-1, 0, client_con);
 

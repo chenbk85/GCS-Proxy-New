@@ -44,8 +44,8 @@ typedef struct {
 
 CHASSIS_API chassis_event_op_t *chassis_event_op_new();
 CHASSIS_API void chassis_event_op_free(chassis_event_op_t *e);
-CHASSIS_API void chassis_event_add(chassis *chas, struct event *ev);
-CHASSIS_API void chassis_event_add_ex(chassis *chas, struct event *ev);		//add by Vinchen/CFR
+CHASSIS_API void chassis_event_add(chassis *chas, struct event *ev, void* user_data);
+CHASSIS_API void chassis_event_add_ex(chassis *chas, struct event *ev, void* user_data);		//add by Vinchen/CFR
 CHASSIS_API void chassis_event_add_local(chassis *chas, struct event *ev);
 
 /**
@@ -59,9 +59,7 @@ typedef struct {
 
 	GThread *thr;
 
-//#ifdef _VINCHEN_TEST
 	unsigned long event_add_cnt;			/* add by vinchen/CFR, for debug */
-//#endif // _VINCHEN_TEST
 
 	struct event_base *event_base;
 } chassis_event_thread_t;

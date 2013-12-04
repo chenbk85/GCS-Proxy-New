@@ -45,6 +45,7 @@
 #include <event.h>
 
 #include "chassis-event-thread.h"
+#include "network-mysqld.h"
 
 #define C(x) x, sizeof(x) - 1
 #ifndef WIN32
@@ -115,7 +116,7 @@ int chassis_event_get_random_int() {
  *
  * @see network_mysqld_con_handle()
  */
-void chassis_event_add(chassis *chas, struct event *ev) {
+void chassis_event_add(chassis *chas, struct event *ev, void* user_data) {
 // 	chassis_event_op_t *op = chassis_event_op_new();
 // 
 // 	op->type = CHASSIS_EVENT_OP_ADD;
@@ -131,12 +132,11 @@ void chassis_event_add(chassis *chas, struct event *ev) {
 	*/
 	gint32 r_num = chassis_event_get_random_int() % chas->event_thread_count;
 	chassis_event_thread_t*	event_thread;
+    network_mysqld_con* con = (network_mysqld_con*)user_data;
 
 	event_thread = chas->threads->event_threads->pdata[r_num];
-
-//#ifdef _VINCHEN_TEST
 	event_thread->event_add_cnt++;			/* add by vinchen/CFR, for debug */
-//#endif // _VINCHEN_TEST
+    con->thread_id = r_num;
 
 	event_base_set(event_thread->event_base, ev);
 	event_add(ev, NULL);
@@ -176,10 +176,16 @@ void chassis_event_add_local(chassis G_GNUC_UNUSED *chas, struct event *ev) {
  *
  * @see network_mysqld_con_handle()
  */
-void chassis_event_add_ex(chassis *chas, struct event *ev) {
-	struct event_base *event_base;
+void chassis_event_add_ex(chassis *chas, struct event *ev, void* user_data) {
+    struct event_base *event_base = ev->ev_base;
 
-	event_base = g_private_get(tls_event_base_key);
+	chassis_event_thread_t*	event_thread;
+    network_mysqld_con* con = (network_mysqld_con*)user_data;
+
+	event_thread = chas->threads->event_threads->pdata[con->thread_id];
+	event_thread->event_add_cnt++;			/* add by vinchen/CFR, for debug */
+
+    if (!event_base) event_base = g_private_get(tls_event_base_key);
 
 	g_assert(event_base); /* the thread-local event-base has to be initialized */
 

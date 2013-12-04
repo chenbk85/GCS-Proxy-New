@@ -353,6 +353,8 @@ struct network_mysqld_con {
 	chassis_timestamps_t *timestamps;
 	//add by huibohuang 用于记录用户执行操作的开始时间
 	GTimeVal start_time;
+
+    gint  thread_id;    // 当前处理该连接的线程ID
 };
 
 
