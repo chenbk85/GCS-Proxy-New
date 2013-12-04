@@ -1591,11 +1591,15 @@ admin_handle_normal_query(
         {
             chassis_event_thread_t * event_thread = con->srv->threads->event_threads->pdata[i];
 
+            row = g_ptr_array_new();
+
             snprintf(id_str, sizeof(id_str) - 1 , "%d", i);
             g_ptr_array_add(row, g_strdup(id_str));
 
             snprintf(id_str, sizeof(id_str) - 1 , "%ul", event_thread->event_add_cnt);
             g_ptr_array_add(row, g_strdup(id_str));
+
+            g_ptr_array_add(rows, row);
         }
 
         network_mysqld_con_send_resultset(con->client, fields, rows);
