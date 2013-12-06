@@ -1623,15 +1623,17 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 			/* mark the backend as being DOWN and retry with a different one */
 			//st->backend->state = BACKEND_STATE_DOWN;
 
- 			g_mutex_lock(con->srv->priv->backends->backends_mutex);			//edit by vinchen/CFR, if not is down ,set to unknown
- 			if (st->backend->state != BACKEND_STATE_DOWN){
-                //TODO: vinchen
- 				g_assert(con->srv->priv->backends->backends->len == 1);		//如果这样修改后，多后端就没意义了！先断言(makebe question)			
- 				st->backend->state = BACKEND_STATE_UNKNOWN;
- 			}
- 			g_mutex_unlock(con->srv->priv->backends->backends_mutex);
+            if (st->backend->state != BACKEND_STATE_DOWN){
+                g_mutex_lock(con->srv->priv->backends->backends_mutex);			//edit by vinchen/CFR, if not is down ,set to unknown
+                if (st->backend->state != BACKEND_STATE_DOWN){
+                    //TODO: vinchen
+                    g_assert(con->srv->priv->backends->backends->len == 1);		//如果这样修改后，多后端就没意义了！先断言(makebe question)			
+                    st->backend->state = BACKEND_STATE_UNKNOWN;
+                    chassis_gtime_testset_now(&st->backend->state_since, NULL);
+                }
+                g_mutex_unlock(con->srv->priv->backends->backends_mutex);
+            }
 
-			chassis_gtime_testset_now(&st->backend->state_since, NULL);
 			network_socket_free(con->server);
 			con->server = NULL;
 
@@ -1642,10 +1644,14 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 			break;
 		}
 
-		if (st->backend->state != BACKEND_STATE_UP) {
-			st->backend->state = BACKEND_STATE_UP;
-			chassis_gtime_testset_now(&st->backend->state_since, NULL);
-		}
+        if (st->backend->state != BACKEND_STATE_UP) {
+            g_mutex_lock(con->srv->priv->backends->backends_mutex);	
+            if (st->backend->state != BACKEND_STATE_UP) {
+                st->backend->state = BACKEND_STATE_UP;
+                chassis_gtime_testset_now(&st->backend->state_since, NULL);
+            }
+            g_mutex_unlock(con->srv->priv->backends->backends_mutex);
+        }
 
 		con->state = CON_STATE_READ_HANDSHAKE;
 
@@ -1712,6 +1718,8 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 		 * prefer SQF (shorted queue first) to load all backends equally
 		 */ 
 
+        /* 总取第0个 */
+        st->backend_ndx = 0;
 		for (i = 0; i < network_backends_count(g->backends); i++) {
 			cur = network_backends_get(g->backends, i);
 	
@@ -1721,6 +1729,9 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 			if (cur->state == BACKEND_STATE_DOWN ||
 			    cur->type != BACKEND_TYPE_RW) continue;
 	
+            if (cur->connected_clients == UINT_MAX)
+                g_critical("Someting error from connected_clients %u of backend %d", cur->connected_clients, i);
+
 			if (cur->connected_clients < min_connected_clients) {
 				st->backend_ndx = i;
 				min_connected_clients = cur->connected_clients;
@@ -1749,7 +1760,9 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 		con->server = network_socket_new();
 
 		network_address_copy(con->server->dst, st->backend->addr);
+        g_mutex_lock(con->srv->priv->backends->backends_mutex);
 		st->backend->connected_clients++;
+        g_mutex_unlock(con->srv->priv->backends->backends_mutex);
 
 		switch(network_socket_connect(con->server)) {
 		case NETWORK_SOCKET_ERROR_RETRY:
@@ -1761,11 +1774,13 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 			con->server->backend_idx = st->backend_ndx; /* add by vinchen/CFR，在socket建立以后赋值 */
 			break;
 		default:
-			g_message("%s.%d: connecting to backend (%s) failed, marking it as down for ...", 
+			g_message("%s.%d: connecting to backend (%s) failed, marking it as unknown for ...", 
 					__FILE__, __LINE__, con->server->dst->name->str);
 
+            g_mutex_lock(con->srv->priv->backends->backends_mutex);	
 			st->backend->state = BACKEND_STATE_UNKNOWN;
 			chassis_gtime_testset_now(&st->backend->state_since, NULL);
+            g_mutex_unlock(con->srv->priv->backends->backends_mutex);	
 
 			network_socket_free(con->server);
 			con->server = NULL;
@@ -1774,10 +1789,14 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_connect_server) {
 		}
 
 		//g_assert(st->backend->state != BACKEND_STATE_DOWN);		//add by vinchen/CFR
-		if (st->backend->state == BACKEND_STATE_UNKNOWN) {		//edit down to unknow by vinchen/CFR
-			st->backend->state = BACKEND_STATE_UP;
-			chassis_gtime_testset_now(&st->backend->state_since, NULL);
-		}
+        if (st->backend->state == BACKEND_STATE_UNKNOWN) {
+            g_mutex_lock(con->srv->priv->backends->backends_mutex);	
+            if (st->backend->state == BACKEND_STATE_UNKNOWN) {		//edit down to unknow by vinchen/CFR
+                st->backend->state = BACKEND_STATE_UP;
+                chassis_gtime_testset_now(&st->backend->state_since, NULL);
+            }
+            g_mutex_unlock(con->srv->priv->backends->backends_mutex);	
+        }
 
 		con->state = CON_STATE_READ_HANDSHAKE;
 	} else {
@@ -1935,7 +1954,9 @@ NETWORK_MYSQLD_PLUGIN_PROTO(proxy_disconnect_client) {
 		network_connection_pool_lua_add_connection(con);
 	} else if (st->backend) {
 		/* we have backend assigned and want to close the connection to it */
+        g_mutex_lock(con->srv->priv->backends->backends_mutex);
 		st->backend->connected_clients--;
+        g_mutex_unlock(con->srv->priv->backends->backends_mutex);
 	}
 
 #ifdef HAVE_LUA_H

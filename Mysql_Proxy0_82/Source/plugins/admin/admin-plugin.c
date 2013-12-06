@@ -1570,6 +1570,157 @@ admin_handle_normal_query(
 
         ret = EC_ADMIN_SUCCESS;
     }
+    else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("select version")))
+    {
+        //add by vinchen 
+        MYSQL_FIELD *field;
+        gchar*	cols[] = {"version"};
+
+        fields = network_mysqld_proto_fielddefs_new();
+        for (i = 0; i < 1; ++i){
+            field = network_mysqld_proto_fielddef_new();
+            field->name = g_strdup(cols[i]);
+            field->type = FIELD_TYPE_VAR_STRING;
+            g_ptr_array_add(fields,field);
+        }
+
+        rows = g_ptr_array_new();
+        row = g_ptr_array_new();
+
+#ifndef CHASSIS_BUILD_TAG
+#define CHASSIS_BUILD_TAG PACKAGE_STRING
+#endif
+
+        g_ptr_array_add(row, g_strdup(CHASSIS_BUILD_TAG));
+        g_ptr_array_add(rows, row);
+
+        network_mysqld_con_send_resultset(con->client, fields, rows);
+        ret = EC_ADMIN_SUCCESS;
+    }
+    else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("select * from help")))
+    {
+        //add by vinchen 
+        MYSQL_FIELD *field;
+        gchar*	cols[] = {"command","description"};
+        gchar*  command_arr[] = {"SELECT * FROM help", 
+                            "SELECT * FROM backends",
+                            "show processlist",
+                            "refresh_backends('host:port',flag)", 
+                            "refresh_users('user@host','flag')",
+                            "refresh_connlog(flag)",
+                            "show balances",
+                            "flush balances"};
+        gchar* desc_arr[] = {"shows this help", 
+                            "lists the backends and their state", 
+                            "lists the client connection info", 
+                            "change backends configuration.param(flag):must be 0 or 1",
+                            "refresh proxy users.param(flag):'+'=>add user;'-'=>drop user;'='=>cover user",
+                            "controls whether to write the log.param(flag):1=>write log;0=>not write log",
+                            "show the total comand count of each thread",
+                            "flush balances"};
+
+        fields = network_mysqld_proto_fielddefs_new();
+        for (i = 0; i < 2; ++i){
+            field = network_mysqld_proto_fielddef_new();
+            field->name = g_strdup(cols[i]);
+            field->type = FIELD_TYPE_VAR_STRING;
+            g_ptr_array_add(fields,field);
+        }
+
+        rows = g_ptr_array_new();
+        srv = con->srv;
+        for (i = 0; i < sizeof(command_arr) / sizeof(command_arr[0]); ++i)
+        {
+            row = g_ptr_array_new();
+
+            g_ptr_array_add(row, g_strdup(command_arr[i]));
+            g_ptr_array_add(row, g_strdup(desc_arr[i]));
+
+            g_ptr_array_add(rows, row);
+        }
+
+        network_mysqld_con_send_resultset(con->client, fields, rows);
+        ret = EC_ADMIN_SUCCESS;
+    }
+    else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("select * from backends")))
+    {
+        //add by vinchen 
+        MYSQL_FIELD *field;
+        gchar id_str[50];
+        gchar*	cols[] = {"backend_ndx","address", "state", "type", "uuid", "connected_clients"};
+        //int	cols_type[] = {FIELD_TYPE_LONG, FIELD_TYPE_STRING, FIELD_TYPE_STRING, FIELD_TYPE_STRING,
+        //                   FIELD_TYPE_STRING, FIELD_TYPE_LONG};   
+
+        //g_assert(sizeof(cols) / sizeof(cols[0]) == sizeof(cols_type) / sizeof(cols_type[0]));
+        fields = network_mysqld_proto_fielddefs_new();
+        for (i = 0; i < sizeof(cols) / sizeof(cols[0]); ++i){
+            field = network_mysqld_proto_fielddef_new();
+            field->name = g_strdup(cols[i]);
+            //field->type = cols_type[i];
+            field->type = FIELD_TYPE_STRING;
+            g_ptr_array_add(fields,field);
+        }
+
+        rows = g_ptr_array_new();
+        srv = con->srv;
+        g_mutex_lock(srv->priv->backends->backends_mutex);
+        for (i = 0; i < (unsigned)srv->priv->backends->backends->len; ++i)
+        {
+            network_backend_t* backend = network_backends_get(srv->priv->backends, i);
+
+            row = g_ptr_array_new();
+
+            snprintf(id_str, sizeof(id_str) - 1 , "%d", i+1);
+            g_ptr_array_add(row, g_strdup(id_str));
+            g_ptr_array_add(row, g_strdup(backend->addr->name->str));
+
+            switch (backend->state)
+            {
+            case BACKEND_STATE_UP:
+                g_ptr_array_add(row, g_strdup("up"));
+                break;
+
+            case BACKEND_STATE_DOWN:
+                g_ptr_array_add(row, g_strdup("down"));
+                break;
+
+            case BACKEND_STATE_UNKNOWN:
+            default:
+                g_ptr_array_add(row, g_strdup("unknown"));
+                break;
+            }
+
+            switch (backend->type)
+            {
+            case BACKEND_TYPE_RO:
+                g_ptr_array_add(row, g_strdup("ro"));
+                break;
+
+            case BACKEND_TYPE_RW:
+                g_ptr_array_add(row, g_strdup("rw"));
+                break;
+
+            case BACKEND_TYPE_UNKNOWN:
+            default:
+                g_ptr_array_add(row, g_strdup("unknown"));
+                break;
+            }
+
+            if (backend->uuid)
+                g_ptr_array_add(row, g_strdup(backend->uuid->str));
+            else
+                g_ptr_array_add(row, NULL);
+
+            snprintf(id_str, sizeof(id_str) - 1 , "%lu", backend->connected_clients);
+            g_ptr_array_add(row, g_strdup(id_str));
+
+            g_ptr_array_add(rows, row);
+        }
+        g_mutex_lock(srv->priv->backends->backends_mutex);
+
+        network_mysqld_con_send_resultset(con->client, fields, rows);
+        ret = EC_ADMIN_SUCCESS;
+    }
     else if(0 == g_ascii_strncasecmp(packet->str + NET_HEADER_SIZE + 1, C("show balances")))
     {
         //add by vinchen 
@@ -1936,7 +2087,17 @@ NETWORK_MYSQLD_PLUGIN_PROTO(server_read_query) {
             con->state = CON_STATE_SEND_QUERY_RESULT;
             return NETWORK_SOCKET_SUCCESS;
         }
+        else
+        {
+            network_mysqld_con_send_error(con->client, C("use 'SELECT * FROM help' to see the supported commands"));
+            g_string_free(g_queue_pop_tail(recv_sock->recv_queue->chunks), TRUE);
+
+            con->state = CON_STATE_SEND_QUERY_RESULT;
+            return NETWORK_SOCKET_SUCCESS;
+        }
     }
+
+    // never hit!
 
 	ret = admin_lua_read_query(con);
 

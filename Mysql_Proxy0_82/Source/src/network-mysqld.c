@@ -130,9 +130,9 @@ network_socket_retval_t plugin_call_cleanup(chassis *srv, network_mysqld_con *co
 	
 	if (!func) return retval;
 
-	LOCK_LUA(srv->priv->sc);
+	//LOCK_LUA(srv->priv->sc);
 	retval = (*func)(srv, con);
-	UNLOCK_LUA(srv->priv->sc);
+	//UNLOCK_LUA(srv->priv->sc);
 
 	return retval;
 }
@@ -801,9 +801,9 @@ network_socket_retval_t plugin_call(chassis *srv, network_mysqld_con *con, int s
 	}
 	if (!func) return NETWORK_SOCKET_SUCCESS;
 
-	LOCK_LUA(srv->priv->sc);
+	//LOCK_LUA(srv->priv->sc);
 	ret = (*func)(srv, con);
-	UNLOCK_LUA(srv->priv->sc);
+	//UNLOCK_LUA(srv->priv->sc);
 
 	return ret;
 }

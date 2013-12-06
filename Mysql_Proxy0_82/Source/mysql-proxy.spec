@@ -6,7 +6,7 @@
 
 Summary: A Proxy for the MySQL Client/Server protocol
 Name: mysql-proxy
-Version: 0.8.2.2
+Version: 0.8.2.3
 Release: 0
 License: GPL
 Group: Applications/Networking

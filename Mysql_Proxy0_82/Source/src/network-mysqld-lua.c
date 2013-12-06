@@ -276,6 +276,9 @@ network_mysqld_register_callback_ret network_mysqld_con_lua_register_callback(ne
 	network_mysqld_con **con_p;
 	int stack_top;
 
+    /* È¡Ïûlua */
+    lua_script = NULL;
+
 	if (!lua_script) return REGISTER_CALLBACK_SUCCESS;
 
 	if (st->L) {
