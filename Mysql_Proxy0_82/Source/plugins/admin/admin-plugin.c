@@ -1668,7 +1668,7 @@ admin_handle_normal_query(
         g_mutex_lock(srv->priv->backends->backends_mutex);
         for (i = 0; i < (unsigned)srv->priv->backends->backends->len; ++i)
         {
-            network_backend_t* backend = network_backends_get(srv->priv->backends, i);
+            network_backend_t* backend = network_backends_get_nolock(srv->priv->backends, i);
 
             row = g_ptr_array_new();
 
