@@ -1608,6 +1608,7 @@ admin_handle_normal_query(
                             "refresh_backends('host:port',flag)", 
                             "refresh_users('user@host','flag')",
                             "refresh_connlog(flag)",
+                            "select version",
                             "show balances",
                             "flush balances"};
         gchar* desc_arr[] = {"shows this help", 
@@ -1616,6 +1617,7 @@ admin_handle_normal_query(
                             "change backends configuration.param(flag):must be 0 or 1",
                             "refresh proxy users.param(flag):'+'=>add user;'-'=>drop user;'='=>cover user",
                             "controls whether to write the log.param(flag):1=>write log;0=>not write log",
+                            "show the proxy version",
                             "show the total comand count of each thread",
                             "flush balances"};
 
@@ -1666,7 +1668,7 @@ admin_handle_normal_query(
         g_mutex_lock(srv->priv->backends->backends_mutex);
         for (i = 0; i < (unsigned)srv->priv->backends->backends->len; ++i)
         {
-            network_backend_t* backend = network_backends_get(srv->priv->backends, i);
+            network_backend_t* backend = network_backends_get_nolock(srv->priv->backends, i);
 
             row = g_ptr_array_new();
 

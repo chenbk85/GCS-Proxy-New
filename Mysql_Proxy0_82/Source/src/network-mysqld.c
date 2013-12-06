@@ -232,17 +232,17 @@ void network_mysqld_add_connection(chassis *srv, network_mysqld_con *con) {
 void network_mysqld_con_free(network_mysqld_con *con) {
 	if (!con) return;
 
-	if (con->parse.data && con->parse.data_free) {
-		con->parse.data_free(con->parse.data);
-	}
-
-	if (con->server) network_socket_free(con->server);
-	if (con->client) network_socket_free(con->client);
-
 	/* we are still in the conns-array */
 	g_mutex_lock(con->srv->priv->cons_mutex);		//add by vinchen/CFR for cons's thread safe
 	g_ptr_array_remove_fast(con->srv->priv->cons, con);
 	g_mutex_unlock(con->srv->priv->cons_mutex);
+
+	if (con->parse.data && con->parse.data_free) {
+		con->parse.data_free(con->parse.data);
+	}
+    /* 处理admin 接口show processlist的并发问题，触发断言 */
+    if (con->server) network_socket_free(con->server);
+    if (con->client) network_socket_free(con->client);
 	
 	chassis_timestamps_free(con->timestamps);
 

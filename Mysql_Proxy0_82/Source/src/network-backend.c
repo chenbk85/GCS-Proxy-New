@@ -200,6 +200,13 @@ network_backend_t *network_backends_get(network_backends_t *bs, guint ndx) {
 	return bs->backends->pdata[ndx];
 }
 
+network_backend_t *network_backends_get_nolock(network_backends_t *bs, guint ndx) {
+    if (ndx >= bs->backends->len) return NULL;
+
+    /* FIXME: shouldn't we copy the backend or add ref-counting ? */	
+    return bs->backends->pdata[ndx];
+}
+
 guint network_backends_count(network_backends_t *bs) {
 	guint len;
 
