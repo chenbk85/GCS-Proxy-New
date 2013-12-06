@@ -1668,7 +1668,7 @@ admin_handle_normal_query(
         g_mutex_lock(srv->priv->backends->backends_mutex);
         for (i = 0; i < (unsigned)srv->priv->backends->backends->len; ++i)
         {
-            network_backend_t* backend = network_backends_get_nolock(srv->priv->backends, i);
+            network_backend_t* backend = network_backends_get(srv->priv->backends, i);
 
             row = g_ptr_array_new();
 
@@ -1718,7 +1718,7 @@ admin_handle_normal_query(
 
             g_ptr_array_add(rows, row);
         }
-        g_mutex_lock(srv->priv->backends->backends_mutex);
+        g_mutex_unlock(srv->priv->backends->backends_mutex);
 
         network_mysqld_con_send_resultset(con->client, fields, rows);
         ret = EC_ADMIN_SUCCESS;
