@@ -1801,24 +1801,33 @@ admin_handle_normal_query(
 			tcon = g_ptr_array_index(cons, i);
 			if (tcon->server && tcon->client && tcon->client->src)
 			{
-				if(tcon->server->challenge && tcon->client->response && tcon->client->response->username &&
-					tcon->client->default_db){
+				//if(tcon->server->challenge && tcon->client->response && tcon->client->response->username &&
+				//	tcon->client->default_db){
 					row = g_ptr_array_new();
 
-					snprintf(thread_id_str, sizeof(thread_id_str) - 1 , "%d",tcon->server->challenge->thread_id);
-					g_ptr_array_add(row, g_strdup(thread_id_str));
-										
-				    g_ptr_array_add(row, g_strdup(tcon->client->response->username->str));
+                    if (tcon->server->challenge)
+                    {
+					    snprintf(thread_id_str, sizeof(thread_id_str) - 1 , "%d",tcon->server->challenge->thread_id);
+					    g_ptr_array_add(row, g_strdup(thread_id_str));
+				    }
+                    else
+					    g_ptr_array_add(row, NULL);
+                   						
+                    if (tcon->client->response && tcon->client->response->username)
+				        g_ptr_array_add(row, g_strdup(tcon->client->response->username->str));
+                    else
+					    g_ptr_array_add(row, g_strdup("unauthenticated user"));
+
 														
 					// 目前一定是ipv4
 					g_assert(tcon->client->src->addr.common.sa_family == AF_INET);
 					snprintf(host, sizeof(host) - 1, "%s:%d",inet_ntoa(tcon->client->src->addr.ipv4.sin_addr),tcon->client->src->addr.ipv4.sin_port);
 					g_ptr_array_add(row, g_strdup(host));
 
-					if(tcon->client->default_db->len > 0){
+					if(tcon->client->default_db && tcon->client->default_db->len > 0){
 						g_ptr_array_add(row, g_strdup(tcon->client->default_db->str));
 					}else{
-						g_ptr_array_add(row, g_strdup("NULL"));
+						g_ptr_array_add(row, NULL);
 					}
 
 					g_get_current_time(&now);
@@ -1828,7 +1837,7 @@ admin_handle_normal_query(
 					g_ptr_array_add(row, g_strdup(ftime_str));
 
 					g_ptr_array_add(rows, row);
-				}
+				//}
 			}
 		}
 		g_mutex_unlock(srv->priv->cons_mutex);
