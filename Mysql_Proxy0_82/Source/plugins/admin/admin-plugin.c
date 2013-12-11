@@ -829,65 +829,6 @@ admin_network_addr_free(
 	g_free(addr);
 }
 
-const gchar*
-admin_get_state_str(
-    gint state
-)
-{
-    switch(state)
-    {
-    case CON_STATE_CLOSE_CLIENT:
-        return "CON_STATE_CLOSE_CLIENT";
-    case CON_STATE_CLOSE_SERVER:
-        return "CON_STATE_CLOSE_SERVER";
-    case CON_STATE_SEND_ERROR:
-        return "CON_STATE_SEND_ERROR";
-    case CON_STATE_ERROR:
-        return "CON_STATE_ERROR";
-    case CON_STATE_INIT:
-        return "CON_STATE_INIT";
-    case CON_STATE_CONNECT_SERVER:
-        return "CON_STATE_CONNECT_SERVER";
-    case CON_STATE_READ_HANDSHAKE:
-        return "CON_STATE_READ_HANDSHAKE";
-    case CON_STATE_SEND_HANDSHAKE:
-        return "CON_STATE_SEND_HANDSHAKE";
-    case CON_STATE_READ_AUTH:
-        return "CON_STATE_READ_AUTH";
-    case CON_STATE_SEND_AUTH:
-        return "CON_STATE_SEND_AUTH";
-    case CON_STATE_READ_AUTH_RESULT:
-        return "CON_STATE_READ_AUTH_RESULT";
-    case CON_STATE_SEND_AUTH_RESULT:
-        return "CON_STATE_SEND_AUTH_RESULT";
-    case CON_STATE_READ_AUTH_OLD_PASSWORD:
-        return "CON_STATE_READ_AUTH_OLD_PASSWORD";
-    case CON_STATE_SEND_AUTH_OLD_PASSWORD:
-        return "CON_STATE_SEND_AUTH_OLD_PASSWORD";
-
-    case CON_STATE_READ_QUERY:
-        return "CON_STATE_READ_QUERY";
-    case CON_STATE_SEND_QUERY:
-        return "CON_STATE_SEND_QUERY";
-
-    case CON_STATE_READ_QUERY_RESULT:
-        return "CON_STATE_READ_QUERY_RESULT";
-    case CON_STATE_SEND_QUERY_RESULT:
-        return "CON_STATE_SEND_QUERY_RESULT";
-
-    case CON_STATE_READ_LOCAL_INFILE_DATA:
-        return "CON_STATE_READ_LOCAL_INFILE_DATA";
-    case CON_STATE_SEND_LOCAL_INFILE_DATA:
-        return "CON_STATE_SEND_LOCAL_INFILE_DATA";
-    case CON_STATE_READ_LOCAL_INFILE_RESULT:
-        return "CON_STATE_READ_LOCAL_INFILE_RESULT";
-    case CON_STATE_SEND_LOCAL_INFILE_RESULT:
-        return "CON_STATE_SEND_LOCAL_INFILE_RESULT";
-    }
-    return "CON_STATE_UNKNOWN";
-}
-
-
 static
 gint
 admin_refresh_backends(
@@ -1843,7 +1784,7 @@ admin_handle_normal_query(
 		gchar*	cols[] = {"Id","User","Host", "Server", "db", "State", "Time" };
 		
 		fields = network_mysqld_proto_fielddefs_new();
-		for (i = 0; i < 5; ++i){
+		for (i = 0; i < sizeof(cols) / sizeof(cols[0]); ++i){
 			field = network_mysqld_proto_fielddef_new();
 			field->name = g_strdup(cols[i]);
 			field->type = FIELD_TYPE_VAR_STRING;
@@ -1900,7 +1841,7 @@ admin_handle_normal_query(
 						g_ptr_array_add(row, NULL);
 					}
 
-                    g_ptr_array_add(row, g_strdup(admin_get_state_str(tcon->state)));
+                    g_ptr_array_add(row, g_strdup(network_mysqld_con_state_get_name(tcon->state)));
 
 					g_get_current_time(&now);
 					ge_gtimeval_diff(&(tcon->start_time), &now, &tdiff);
