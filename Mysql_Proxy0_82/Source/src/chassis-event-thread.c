@@ -94,7 +94,7 @@ void chassis_event_op_apply(chassis_event_op_t *op, struct event_base *event_bas
 //add by vinchen/CFR
 #include <stdlib.h>
 
-int chassis_event_get_random_int(network_mysqld_con* con) {
+guint32 chassis_event_get_random_int(network_mysqld_con* con) {
 	unsigned int thread_id = 0;
 
     if (con->server && con->server->challenge)
@@ -111,7 +111,7 @@ int chassis_event_get_random_int(network_mysqld_con* con) {
 
 	srand(((unsigned long)time(NULL) + (thread_id & 0x0000FFFF)) * (thread_id % 13));
 
-	return rand();
+	return (guint32)rand();
 }
 
 
@@ -139,7 +139,7 @@ void chassis_event_add(chassis *chas, struct event *ev, void* user_data) {
 	*/
 	chassis_event_thread_t*	event_thread;
     network_mysqld_con* con = (network_mysqld_con*)user_data;
-    gint32 r_num = chassis_event_get_random_int(con) % chas->event_thread_count;
+    guint32 r_num = chassis_event_get_random_int(con) % chas->event_thread_count;
 
 	event_thread = chas->threads->event_threads->pdata[r_num];
 	event_thread->event_add_cnt++;			/* add by vinchen/CFR, for debug */
